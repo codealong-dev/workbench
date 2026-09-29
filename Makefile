@@ -1,4 +1,4 @@
-.PHONY: setup dev fake web sidecar test build clean spikes
+.PHONY: setup dev fake web sidecar test build clean spikes install uninstall restart stop logs link
 
 # First time: fetch deps, create the DB, build the sidecar.
 setup:
@@ -35,3 +35,24 @@ spikes:
 
 clean:
 	rm -rf server/_build server/priv/static sidecar/dist web/dist
+
+# macOS: build a release and run it at login via launchd (scripts/macos).
+install:
+	./scripts/macos/install.sh
+
+uninstall:
+	./scripts/macos/uninstall.sh
+
+restart:
+	launchctl kickstart -k gui/$$(id -u)/dev.workbench.server
+
+stop:
+	launchctl bootout gui/$$(id -u)/dev.workbench.server
+
+logs:
+	tail -f $${WB_HOME:-$$HOME/.workbench}/logs/workbench.log
+
+# M7: one-time login link for a browser on another machine (Tailscale).
+#   make link HOST=macmini
+link:
+	@echo "http://$${HOST:-$$(hostname -s)}:$${PORT:-4000}/?token=$$(cat $${WB_HOME:-$$HOME/.workbench}/token)"

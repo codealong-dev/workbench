@@ -60,6 +60,16 @@ defmodule WorkbenchWeb.ThreadChannel do
     end
   end
 
+  def handle_in("push", _params, socket) do
+    with %{} = thread <- Threads.get(socket.assigns.thread_id),
+         {:ok, pushed} <- Workbench.Review.push(thread) do
+      {:reply, {:ok, pushed}, socket}
+    else
+      nil -> {:reply, {:error, %{reason: "not_found"}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
+    end
+  end
+
   def handle_in("archive", _params, socket) do
     result(Threads.archive(socket.assigns.thread_id), socket)
   end

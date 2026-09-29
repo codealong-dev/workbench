@@ -15,7 +15,10 @@ A local-first workbench for running coding agents in parallel. A Phoenix app run
 | M3 control | Mostly done in M1 (approvals, stop, modes); tool rendering by name is in |
 | M4 persistence | Mostly done in M1; "Load earlier" paging is left |
 | M5 review | Done: changes panel (diff vs base, split/unified, untracked files), Open in Zed / VS Code / Cursor / Finder |
-| M6 Codex | Next |
+| M6 macOS app | Done: login-shell PATH, `make install` (release + launchd agent at login), Dock web app |
+| M7 remote machine | Done: `WB_BIND`/`WB_ORIGINS`, one-time login link for other machines, SSH "Open in", Push + Open PR. See [docs/remote.md](docs/remote.md) |
+| M8 several machines | Next: one UI, threads on several nodes over Tailscale |
+| M9 Codex, M10 polish | After M8 |
 
 ## Requirements
 
@@ -50,6 +53,20 @@ Optional `.workbench.json` at the repo root:
 Commands run with `sh -c` inside the worktree, with `WB_REPO` and `WB_WORKTREE` set. Setup output shows up in the thread as "Setup" tool calls; a failing step skips the rest but leaves the thread usable.
 
 `make build && cd server && mix phx.server` serves the built UI from Phoenix at http://127.0.0.1:4000.
+
+### As a Mac app
+
+```bash
+make install     # release + launchd agent: starts at login, restarts on crash
+```
+
+Then in Safari open http://127.0.0.1:4000 and choose **File > Add to Dock** for a standalone window with its own Dock icon. `make logs`, `make restart`, `make stop` and `make uninstall` manage it; data stays in `~/.workbench`. After pulling new code, run `make install` again.
+
+Launched outside a terminal, Workbench reads `PATH` from your login shell at boot, so Homebrew/asdf tools (`git`, `node`, `zed`) are found.
+
+### On another machine
+
+Run it on a Mac mini or Linux box and use it from your laptop over Tailscale: see [docs/remote.md](docs/remote.md).
 
 Data lives in `~/.workbench` (`WB_HOME` overrides it): the SQLite DB and the socket token.
 

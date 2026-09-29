@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownContent, DropdownMenu, DropdownSeparator, DropdownTrigger } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
 import type { Editor } from "@/contracts";
+import { isRemote } from "@/lib/remote";
 
 const EDITOR_KEY = "wb.editor";
 
@@ -13,6 +14,8 @@ export const EDITORS: { id: Editor; label: string; icon: LucideIcon }[] = [
   { id: "cursor", label: "Cursor", icon: Code },
   { id: "finder", label: "Finder", icon: FolderOpen },
 ];
+
+const MENU = EDITORS.filter((e) => !(isRemote && e.id === "finder"));
 
 export function preferredEditor(): Editor {
   const saved = localStorage.getItem(EDITOR_KEY) as Editor | null;
@@ -37,8 +40,16 @@ export function OpenMenu({ path, onOpen }: { path: string; onOpen: (editor: Edit
 
   return (
     <div className="relative flex items-center">
-      <Button size="compact" variant="secondary" leadingIcon={current.icon} onClick={() => void open(editor)} className="rounded-r-none">
+      <Button
+        size="compact"
+        variant="secondary"
+        leadingIcon={current.icon}
+        onClick={() => void open(editor)}
+        className="rounded-r-none"
+        title={isRemote ? "Opens over SSH from this machine's editor" : undefined}
+      >
         Open in {current.label}
+        {isRemote && <span className="text-muted-foreground"> (SSH)</span>}
       </Button>
       <DropdownMenu>
         <DropdownTrigger
@@ -49,11 +60,11 @@ export function OpenMenu({ path, onOpen }: { path: string; onOpen: (editor: Edit
           }
         />
         <DropdownContent>
-          {EDITORS.map((e, i) => (
+          {MENU.map((e, i) => (
             <MenuItem key={e.id} index={i} icon={e.icon} label={e.id === "finder" ? "Show in Finder" : e.label} onSelect={() => void open(e.id)} />
           ))}
           <DropdownSeparator />
-          <MenuItem index={EDITORS.length} icon={Copy} label="Copy path" onSelect={() => void navigator.clipboard?.writeText(path)} />
+          <MenuItem index={MENU.length} icon={Copy} label="Copy path" onSelect={() => void navigator.clipboard?.writeText(path)} />
         </DropdownContent>
       </DropdownMenu>
       {note && <div className="absolute top-full right-0 z-10 mt-1 w-72 rounded-lg bg-surface-4 px-3 py-2 text-[12px] text-destructive shadow-surface-4">{note}</div>}

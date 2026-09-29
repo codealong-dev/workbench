@@ -74,6 +74,30 @@ defmodule Workbench.ReviewTest do
     assert {:error, "worktree " <> _} = Review.diff(%{Threads.get(t.id) | worktree_path: "/nope"})
   end
 
+  test "push sends the thread branch to origin", %{dir: dir, repo: repo, t: t} do
+    assert {:error, "no `origin` remote" <> _} = Review.push(Threads.get(t.id))
+
+    bare = Path.join(dir, "origin.git")
+    {_, 0} = System.cmd("git", ["init", "-q", "--bare", bare])
+    git!(repo, ["remote", "add", "origin", bare])
+    File.write!(Path.join(t.worktree_path, "x.txt"), "x\n")
+    git!(t.worktree_path, ["add", "x.txt"])
+    git!(t.worktree_path, ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "x"])
+
+    assert {:ok, %{branch: branch, pr_url: nil}} = Review.push(Threads.get(t.id))
+    assert branch == t.branch
+    assert git!(bare, ["branch", "--list", branch]) =~ branch
+  end
+
+  test "PR links for GitHub and GitLab remotes" do
+    assert Review.pr_url("git@github.com:tiago/workbench.git", "main", "wb/x-1") ==
+             "https://github.com/tiago/workbench/compare/main...wb/x-1?expand=1"
+
+    assert Review.pr_url("https://github.com/tiago/workbench", nil, "wb/x") == "https://github.com/tiago/workbench/pull/new/wb/x"
+    assert Review.pr_url("git@gitlab.com:g/r.git", "main", "wb/x") =~ "https://gitlab.com/g/r/-/merge_requests/new?"
+    assert Review.pr_url("/tmp/origin.git", "main", "wb/x") == nil
+  end
+
   test "unknown editor is rejected" do
     assert {:error, "unknown editor" <> _} = Workbench.Editors.open("emacs", "/tmp")
   end

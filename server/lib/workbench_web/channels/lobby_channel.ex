@@ -22,6 +22,7 @@ defmodule WorkbenchWeb.LobbyChannel do
 
     {:ok,
      %{
+       host: Workbench.Host.info(),
        projects: Enum.map(Projects.list(), &Project.to_json/1),
        threads: Enum.map(Threads.list(), &Thread.to_json/1)
      }, socket}

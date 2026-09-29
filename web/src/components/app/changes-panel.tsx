@@ -1,13 +1,13 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { FileDiff } from "@pierre/diffs/react";
 import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
-import { ExternalLink, RefreshCw, X } from "lucide-react";
+import { ArrowUpFromLine, ExternalLink, GitPullRequest, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import { Tabs, TabItem, TabsList } from "@/components/ui/tabs";
 import { useResizableWidth } from "@/hooks/use-resizable-width";
 import { cn } from "@/lib/utils";
-import type { DiffFile, DiffResult, FileStatus } from "@/contracts";
+import type { DiffFile, DiffResult, FileStatus, PushResult } from "@/contracts";
 
 const LAYOUT_KEY = "wb.diffStyle";
 
@@ -84,8 +84,11 @@ export function ChangesPanel(props: {
   onClose: () => void;
   onOpenFile: (path: string) => void;
   loadFile: (path: string) => Promise<string | null>;
+  onPush: () => Promise<{ ok: true; result: PushResult } | { ok: false; error: string }>;
 }) {
-  const { diff, error, loading, onRefresh, onClose, onOpenFile, loadFile } = props;
+  const { diff, error, loading, onRefresh, onClose, onOpenFile, loadFile, onPush } = props;
+  const [pushing, setPushing] = useState(false);
+  const [pushed, setPushed] = useState<{ ok: true; result: PushResult } | { ok: false; error: string } | null>(null);
   const [diffStyle, setDiffStyle] = useState<"split" | "unified">(() => (localStorage.getItem(LAYOUT_KEY) as "split") ?? "unified");
   const { width, dragging, onMouseDown } = useResizableWidth("wb.changesWidth", Math.round(window.innerWidth * 0.52), 420, 1100, "left");
   const [lazy, setLazy] = useState<Record<string, FileDiffMetadata[]>>({});
@@ -149,6 +152,20 @@ export function ChangesPanel(props: {
             <TabItem value="split" label="Split" />
           </TabsList>
         </Tabs>
+        <Button
+          size="compact"
+          variant="ghost"
+          leadingIcon={ArrowUpFromLine}
+          loading={pushing}
+          title="git push -u origin <branch>"
+          onClick={async () => {
+            setPushing(true);
+            setPushed(await onPush());
+            setPushing(false);
+          }}
+        >
+          Push
+        </Button>
         <Button size="icon-compact" variant="ghost" aria-label="Refresh" title="Refresh" onClick={onRefresh}>
           <RefreshCw className={cn(loading && "animate-spin")} />
         </Button>
@@ -156,6 +173,33 @@ export function ChangesPanel(props: {
           <X />
         </Button>
       </header>
+
+      {pushed && (
+        <div
+          className={cn(
+            "flex items-center gap-2 border-b border-border px-4 py-2 text-[12px]",
+            pushed.ok ? "text-muted-foreground" : "bg-destructive-light text-destructive",
+          )}
+        >
+          {pushed.ok ? (
+            <>
+              <span className="min-w-0 flex-1 truncate">
+                Pushed <span className="font-mono text-foreground">{pushed.result.branch}</span> to origin
+              </span>
+              {pushed.result.pr_url && (
+                <a href={pushed.result.pr_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 font-medium text-foreground hover:underline">
+                  <GitPullRequest className="size-3.5" /> Open PR
+                </a>
+              )}
+            </>
+          ) : (
+            <span className="min-w-0 flex-1 whitespace-pre-wrap">{pushed.error}</span>
+          )}
+          <button type="button" aria-label="Dismiss" onClick={() => setPushed(null)} className="rounded p-0.5 hover:bg-hover">
+            <X className="size-3" />
+          </button>
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {error && <div className="m-4 rounded-lg bg-destructive-light px-3 py-2 text-[12px] text-destructive">{error}</div>}

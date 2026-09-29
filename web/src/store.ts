@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Approval, Item, LiveItem, Project, Snapshot, Status, Thread, ThreadEvent, ToolItem } from "./contracts";
+import type { Approval, HostInfo, Item, LiveItem, Project, Snapshot, Status, Thread, ThreadEvent, ToolItem } from "./contracts";
 
 export interface ThreadState {
   thread: Thread;
@@ -12,6 +12,8 @@ export interface ThreadState {
 }
 
 interface Store {
+  host: HostInfo | null;
+  setHost: (host: HostInfo) => void;
   projects: Project[];
   threads: Thread[];
   byId: Record<string, ThreadState>;
@@ -25,6 +27,8 @@ interface Store {
 }
 
 export const useStore = create<Store>((set) => ({
+  host: null,
+  setHost: (host) => set({ host }),
   projects: [],
   threads: [],
   byId: {},

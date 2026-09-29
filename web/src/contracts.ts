@@ -103,3 +103,15 @@ export interface DiffResult {
 }
 
 export type Editor = "zed" | "code" | "cursor" | "finder";
+
+export interface HostInfo {
+  name: string;
+  ssh_target: string;
+}
+
+export interface PushResult {
+  branch: string;
+  remote: string;
+  output: string;
+  pr_url: string | null;
+}

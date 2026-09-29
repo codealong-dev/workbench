@@ -9,6 +9,7 @@ defmodule Workbench.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
+      releases: releases(),
       deps: deps()
     ]
   end
@@ -33,6 +34,11 @@ defmodule Workbench.MixProject do
       {:ecto_sqlite3, "~> 0.22"},
       {:erlexec, "~> 2.2"}
     ]
+  end
+
+  # `make install` builds this and runs it from launchd (see scripts/macos).
+  defp releases do
+    [workbench: [include_executables_for: [:unix], strip_beams: true]]
   end
 
   defp aliases do
