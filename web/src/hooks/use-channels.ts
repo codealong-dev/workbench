@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Channel } from "phoenix";
 import { socket } from "@/socket";
 import { useStore } from "@/store";
-import type { Project, Snapshot, Thread, ThreadEvent } from "@/contracts";
+import type { HostInfo, Project, Snapshot, Thread, ThreadEvent } from "@/contracts";
 
 type Reply = { ok: true; payload?: unknown } | { ok: false; reason: string };
 
@@ -35,7 +35,8 @@ export function useLobby() {
     ch.on("thread.archived", ({ id }) => removeThread(id));
     ch.onClose(() => setConnected(false));
     ch.onError(() => setConnected(false));
-    ch.join().receive("ok", (reply: { projects: Project[]; threads: Thread[] }) => {
+    ch.join().receive("ok", (reply: { host: HostInfo; projects: Project[]; threads: Thread[] }) => {
+      useStore.getState().setHost(reply.host);
       setLobby(reply.projects, reply.threads);
       setConnected(true);
     });

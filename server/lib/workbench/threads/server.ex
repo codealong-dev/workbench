@@ -234,9 +234,21 @@ defmodule Workbench.Threads.Server do
     {:noreply, %{st | stderr: tail}}
   end
 
-  def handle_info({:EXIT, pid, reason}, %{pstate: %{pid: pid}} = st), do: {:noreply, provider_exited(st, reason)}
+  # erlexec delivers output and the exit from different processes, so the exit
+  # can overtake the last output. Give in-flight output a moment to arrive.
+  @drain_ms 50
 
-  def handle_info({:DOWN, _ref, :process, pid, reason}, %{pstate: %{pid: pid}} = st),
+  def handle_info({:EXIT, pid, reason}, %{pstate: %{pid: pid}} = st) do
+    Process.send_after(self(), {:provider_exited, pid, reason}, @drain_ms)
+    {:noreply, st}
+  end
+
+  def handle_info({:DOWN, _ref, :process, pid, reason}, %{pstate: %{pid: pid}} = st) do
+    Process.send_after(self(), {:provider_exited, pid, reason}, @drain_ms)
+    {:noreply, st}
+  end
+
+  def handle_info({:provider_exited, pid, reason}, %{pstate: %{pid: pid}} = st),
     do: {:noreply, provider_exited(st, reason)}
 
   def handle_info(:flush, st), do: {:noreply, flush(%{st | flush_ref: nil})}
@@ -254,7 +266,12 @@ defmodule Workbench.Threads.Server do
     {:noreply, %{st | setup: %{st.setup | current: %{cur | out: out}}}}
   end
 
-  def handle_info({:EXIT, pid, reason}, %{setup: %{current: %{pid: pid}}} = st),
+  def handle_info({:EXIT, pid, reason}, %{setup: %{current: %{pid: pid}}} = st) do
+    Process.send_after(self(), {:setup_exited, pid, reason}, @drain_ms)
+    {:noreply, st}
+  end
+
+  def handle_info({:setup_exited, pid, reason}, %{setup: %{current: %{pid: pid}}} = st),
     do: {:noreply, setup_finished(st, reason)}
 
   def handle_info(msg, st) do

@@ -8,7 +8,8 @@ import { push, useThreadChannel } from "@/hooks/use-channels";
 import { fetchFilePatch, useDiff } from "@/hooks/use-diff";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store";
-import type { Decision, Editor, Thread } from "@/contracts";
+import type { Decision, Editor, PushResult, Thread } from "@/contracts";
+import { isRemote, remoteEditorUrl } from "@/lib/remote";
 import { Timeline } from "./timeline";
 import { StatusDot } from "./status-dot";
 import { MODES } from "./modes";
@@ -76,12 +77,23 @@ export function ThreadView({ id }: { id: string }) {
   const threadStatus = useStore((s) => s.byId[id]?.status);
   const { diff, error: diffError, loading: diffLoading, refresh: refreshDiff } = useDiff(channel, threadStatus, changesOpen);
 
+  const host = useStore((s) => s.host);
+  const worktree = useStore((s) => s.byId[id]?.thread.worktree_path);
+
+  // On the Workbench machine the server launches the editor; from another
+  // machine the browser hands the editor here an SSH deep link instead.
   const openIn = useCallback(
     async (editor: Editor, path?: string): Promise<string | null> => {
+      if (isRemote) {
+        const url = host && worktree ? remoteEditorUrl(editor, host, worktree, path) : null;
+        if (!url) return "Not available from another machine";
+        window.location.href = url;
+        return null;
+      }
       const r = await push(channel.current, "open_editor", { editor, ...(path ? { path } : {}) });
       return r.ok ? null : r.reason;
     },
-    [channel],
+    [channel, host, worktree],
   );
   const ts = useStore((s) => s.byId[id]);
   const [draft, setDraft] = useState("");
@@ -206,6 +218,10 @@ export function ThreadView({ id }: { id: string }) {
             onRefresh={() => void refreshDiff()}
             onClose={() => toggleChanges(false)}
             onOpenFile={(path) => void openIn(preferredEditor(), path)}
+            onPush={async () => {
+              const r = await push(channel.current, "push");
+              return r.ok ? { ok: true, result: r.payload as PushResult } : { ok: false, error: r.reason };
+            }}
             loadFile={(path) => fetchFilePatch(channel.current, path)}
           />
         )}

@@ -30,19 +30,17 @@ defmodule Workbench.ProjectsTest do
     assert File.exists?(Path.join(t.worktree_path, "README.md"))
     assert git!(t.worktree_path, ["rev-parse", "--abbrev-ref", "HEAD"]) == t.branch
 
-    Threads.subscribe(t.id)
-    events = collect_until(&(&1["type"] == "status.changed" and &1["status"] == "idle"), 5_000)
-    completed = for %{"type" => "tool.completed"} = e <- events, do: e
-    assert [%{"output" => "setting up in " <> path, "is_error" => false}, %{"is_error" => false}] = completed
+    # setup starts right away, so read what it persisted rather than racing the stream
+    wait_until(fn -> Threads.snapshot(t.id).status == "idle" and length(Items.last(t.id)) == 2 end)
+    tools = Items.last(t.id)
+    assert [%{"name" => "Setup", "output" => "setting up in " <> path, "is_error" => false}, %{"is_error" => false}] = tools
     assert String.trim(path) == t.worktree_path
     assert File.exists?(Path.join(t.worktree_path, ".setup-ran"))
 
-    # setup items are part of the thread's history
-    assert ["tool", "tool"] == Items.last(t.id) |> Enum.map(& &1["kind"])
   end
 
   test "failing setup reports an error and leaves the thread usable", %{dir: dir} do
-    repo = git_repo(Path.join(dir, "x"), %{setup: ["echo boom >&2; exit 3", "echo never"]})
+    repo = git_repo(Path.join(dir, "x"), %{setup: ["sleep 0.3; echo boom >&2; exit 3", "echo never"]})
     {:ok, p} = Projects.add(repo)
     {:ok, t} = Threads.create(%{project_id: p.id, provider: "fake", title: "s"})
     Threads.subscribe(t.id)
@@ -131,6 +129,14 @@ defmodule Workbench.ProjectsTest do
       end)
 
     assert MapSet.size(done) == 3
+  end
+
+  defp wait_until(fun, tries \\ 100) do
+    cond do
+      fun.() -> :ok
+      tries == 0 -> flunk("condition not met in time")
+      true -> Process.sleep(50) && wait_until(fun, tries - 1)
+    end
   end
 
   defp realpath(p), do: p |> then(&System.cmd("pwd", ["-P"], cd: &1)) |> elem(0) |> String.trim()

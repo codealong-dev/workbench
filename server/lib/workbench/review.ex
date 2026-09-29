@@ -47,6 +47,50 @@ defmodule Workbench.Review do
     end
   end
 
+  @doc """
+  Push the thread's branch to `origin` (M7: work done on another machine
+  reaches you as a branch). Returns the remote and, for GitHub/GitLab, a
+  link to open a PR from it.
+  """
+  def push(%Thread{worktree_path: wt, branch: branch} = t) do
+    with :ok <- check_dir(wt),
+         :ok <- if(is_binary(branch), do: :ok, else: {:error, "this thread has no branch"}),
+         {:ok, url} <- origin_url(wt),
+         {:ok, out} <- git_with_timeout(wt, ["push", "-u", "origin", branch], 90_000) do
+      {:ok, %{branch: branch, remote: url, output: out, pr_url: pr_url(url, t.base_ref, branch)}}
+    end
+  end
+
+  defp origin_url(wt) do
+    case Git.run(wt, ["remote", "get-url", "origin"]) do
+      {:ok, url} -> {:ok, url}
+      {:error, _} -> {:error, "no `origin` remote in this repo"}
+    end
+  end
+
+  defp git_with_timeout(wt, args, timeout) do
+    task = Task.async(fn -> Git.run(wt, args) end)
+
+    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} -> result
+      nil -> {:error, "git #{hd(args)} timed out after #{div(timeout, 1000)}s"}
+    end
+  end
+
+  @doc "A 'create PR' link for GitHub and GitLab remotes, else nil."
+  def pr_url(remote, base, branch) do
+    with [_, host, repo] <- Regex.run(~r{^(?:https?://|ssh://)?(?:[^@/]+@)?([^/:]+)[:/](.+?)(?:\.git)?/?$}, remote) do
+      cond do
+        host == "github.com" and base -> "https://github.com/#{repo}/compare/#{base}...#{branch}?expand=1"
+        host == "github.com" -> "https://github.com/#{repo}/pull/new/#{branch}"
+        String.contains?(host, "gitlab") -> "https://#{host}/#{repo}/-/merge_requests/new?merge_request%5Bsource_branch%5D=#{URI.encode_www_form(branch)}"
+        true -> nil
+      end
+    else
+      _ -> nil
+    end
+  end
+
   defp check_dir(dir), do: if(File.dir?(dir), do: :ok, else: {:error, "worktree #{dir} no longer exists"})
 
   defp label(%Thread{base_ref: nil}), do: "HEAD"

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.workbench.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__RELEASE__/bin/workbench</string>
+    <string>start</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__HOME__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>LANG</key>
+    <string>en_US.UTF-8</string>
+    <key>ELIXIR_ERL_OPTIONS</key>
+    <string>+fnu</string>
+    <key>PORT</key>
+    <string>__PORT__</string>
+    <key>WB_HOME</key>
+    <string>__WB_HOME__</string>
+  </dict>
+  <!-- start at login; restart only if it crashes, not after `make stop` -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>StandardOutPath</key>
+  <string>__WB_HOME__/logs/workbench.log</string>
+  <key>StandardErrorPath</key>
+  <string>__WB_HOME__/logs/workbench.log</string>
+</dict>
+</plist>

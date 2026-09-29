@@ -68,15 +68,21 @@ export function Sidebar(props: {
   const { selected, connected, onSelect, onNewThread, onAddProject } = props;
   const projects = useStore((s) => s.projects);
   const threads = useStore((s) => s.threads);
+  const host = useStore((s) => s.host);
   const loose = threads.filter((t) => !t.project_id || !projects.some((p) => p.id === t.project_id));
   const inProject = (p: Project) => threads.filter((t) => t.project_id === p.id);
 
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-surface-1">
       <div className="flex items-center justify-between px-4 pt-3 pb-1">
-        <div className="flex items-center gap-2 text-[13px] font-semibold tracking-tight">
+        <div className="flex min-w-0 items-baseline gap-2 text-[13px] font-semibold tracking-tight">
           Workbench
-          {!connected && <span className="text-[11px] font-normal text-muted-foreground">offline</span>}
+          {host && (
+            <span className="truncate text-[11px] font-normal text-muted-foreground" title={`Running on ${host.name}`}>
+              {host.name}
+            </span>
+          )}
+          {!connected && <span className="text-[11px] font-normal text-destructive">offline</span>}
         </div>
         <div className="flex items-center">
           <Button size="icon-compact" variant="ghost" aria-label="Add project" title="Add project" onClick={onAddProject}>

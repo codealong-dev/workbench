@@ -5,6 +5,7 @@ defmodule Workbench.Application do
   @impl true
   def start(_type, _args) do
     Workbench.Home.ensure!()
+    Workbench.LoginEnv.load()
 
     children = [
       Workbench.Repo,

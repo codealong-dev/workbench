@@ -19,6 +19,8 @@ defmodule Workbench.Provider.Proc do
   """
   def start([exe | args], cwd, env \\ []) do
     exe = System.find_executable(exe) || exe
+    # erlexec's port program was started before Workbench.LoginEnv fixed PATH
+    env = [{"PATH", System.get_env("PATH", "/usr/bin:/bin")} | Enum.reject(env, &(elem(&1, 0) == "PATH"))]
 
     opts = [
       :stdin,
@@ -57,12 +59,22 @@ defmodule Workbench.Provider.Proc do
   defp collect(io, pid, acc, deadline) do
     receive do
       {s, ^io, data} when s in [:stdout, :stderr] -> collect(io, pid, acc <> data, deadline)
-      {:EXIT, ^pid, :normal} -> {:ok, acc}
-      {:EXIT, ^pid, reason} -> {:error, acc <> "(#{describe_exit(reason)})"}
+      {:EXIT, ^pid, reason} ->
+        # output can arrive after the exit (different sender processes)
+        acc = drain(io, acc)
+        if reason == :normal, do: {:ok, acc}, else: {:error, acc <> "(#{describe_exit(reason)})"}
     after
       max(deadline - System.monotonic_time(:millisecond), 0) ->
         stop(io)
         {:error, acc <> "(timed out)"}
+    end
+  end
+
+  defp drain(io, acc) do
+    receive do
+      {s, ^io, data} when s in [:stdout, :stderr] -> drain(io, acc <> data)
+    after
+      50 -> acc
     end
   end
 
