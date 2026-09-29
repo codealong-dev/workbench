@@ -1,9 +1,14 @@
-import { FolderPlus, GitBranch, Plus } from "lucide-react";
+import { useState } from "react";
+import { FolderPlus, GitBranch, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ResizeHandle } from "@/components/ui/resize-handle";
+import { useResizableWidth } from "@/hooks/use-resizable-width";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store";
 import type { Project, Thread } from "@/contracts";
 import { StatusDot } from "./status-dot";
+
+const COLLAPSED_KEY = "wb.sidebarCollapsed";
 
 function ThreadRow({ t, selected, onSelect }: { t: Thread; selected: boolean; onSelect: () => void }) {
   return (
@@ -71,8 +76,31 @@ export function Sidebar(props: {
   const loose = threads.filter((t) => !t.project_id || !projects.some((p) => p.id === t.project_id));
   const inProject = (p: Project) => threads.filter((t) => t.project_id === p.id);
 
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === "1");
+  const toggleCollapsed = (next: boolean) => {
+    setCollapsed(next);
+    localStorage.setItem(COLLAPSED_KEY, next ? "1" : "0");
+  };
+  const { width, dragging, onMouseDown } = useResizableWidth("wb.sidebarWidth", 256, 200, 420, "right");
+
+  if (collapsed) {
+    return (
+      <aside className="relative flex w-11 shrink-0 flex-col items-center gap-1 border-r border-border bg-surface-1 pt-3">
+        <Button size="icon-compact" variant="ghost" aria-label="Expand sidebar" title="Expand sidebar" onClick={() => toggleCollapsed(false)}>
+          <PanelLeftOpen />
+        </Button>
+        <Button size="icon-compact" variant="ghost" aria-label="New thread" title="New thread (N)" onClick={() => onNewThread()}>
+          <Plus />
+        </Button>
+      </aside>
+    );
+  }
+
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-surface-1">
+    <aside
+      className={cn("relative flex shrink-0 flex-col border-r border-border bg-surface-1", !dragging && "transition-[width] duration-150")}
+      style={{ width }}
+    >
       <div className="flex items-center justify-between px-4 pt-3 pb-1">
         <div className="flex items-center gap-2 text-[13px] font-semibold tracking-tight">
           Workbench
@@ -84,6 +112,9 @@ export function Sidebar(props: {
           </Button>
           <Button size="icon-compact" variant="ghost" aria-label="New thread" title="New thread (N)" onClick={() => onNewThread()}>
             <Plus />
+          </Button>
+          <Button size="icon-compact" variant="ghost" aria-label="Collapse sidebar" title="Collapse sidebar" onClick={() => toggleCollapsed(true)}>
+            <PanelLeftClose />
           </Button>
         </div>
       </div>
@@ -102,6 +133,8 @@ export function Sidebar(props: {
           </div>
         )}
       </nav>
+
+      <ResizeHandle onMouseDown={onMouseDown} dragging={dragging} side="right" />
     </aside>
   );
 }

@@ -3,7 +3,9 @@ import { FileDiff } from "@pierre/diffs/react";
 import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
 import { ExternalLink, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ResizeHandle } from "@/components/ui/resize-handle";
 import { Tabs, TabItem, TabsList } from "@/components/ui/tabs";
+import { useResizableWidth } from "@/hooks/use-resizable-width";
 import { cn } from "@/lib/utils";
 import type { DiffFile, DiffResult, FileStatus } from "@/contracts";
 
@@ -85,6 +87,7 @@ export function ChangesPanel(props: {
 }) {
   const { diff, error, loading, onRefresh, onClose, onOpenFile, loadFile } = props;
   const [diffStyle, setDiffStyle] = useState<"split" | "unified">(() => (localStorage.getItem(LAYOUT_KEY) as "split") ?? "unified");
+  const { width, dragging, onMouseDown } = useResizableWidth("wb.changesWidth", Math.round(window.innerWidth * 0.52), 420, 1100, "left");
   const [lazy, setLazy] = useState<Record<string, FileDiffMetadata[]>>({});
   const refs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -117,7 +120,8 @@ export function ChangesPanel(props: {
   const files = diff?.files ?? [];
 
   return (
-    <section className="flex min-h-0 w-[52%] min-w-[420px] flex-col border-l border-border bg-surface-1">
+    <section className="relative flex min-h-0 shrink-0 flex-col border-l border-border bg-surface-1" style={{ width }}>
+      <ResizeHandle onMouseDown={onMouseDown} dragging={dragging} side="left" />
       <header className="flex items-center gap-2 border-b border-border px-4 py-2">
         <div className="min-w-0 flex-1">
           <div className="text-[13px] font-medium">Changes</div>
