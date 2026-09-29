@@ -1,0 +1,65 @@
+@import "./styles/fluid.css";
+@import "./styles/fluid-components.css";
+
+/* ── Workbench: rendered agent output ─────────────────────────────── */
+
+.wb-prose {
+  /* ChatMessage's bubble is pre-wrap; markdown's own newlines must not render */
+  white-space: normal;
+  font-size: 14px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.wb-prose > * + * { margin-top: 0.75em; }
+.wb-prose h1, .wb-prose h2, .wb-prose h3 { font-weight: 600; line-height: 1.3; margin-top: 1.2em; }
+.wb-prose h1 { font-size: 1.25em; }
+.wb-prose h2 { font-size: 1.12em; }
+.wb-prose h3 { font-size: 1em; }
+.wb-prose ul { list-style: disc; padding-left: 1.4em; }
+.wb-prose ol { list-style: decimal; padding-left: 1.4em; }
+.wb-prose li + li { margin-top: 0.25em; }
+.wb-prose a { text-decoration: underline; text-underline-offset: 2px; }
+.wb-prose blockquote { border-left: 2px solid var(--border); padding-left: 0.9em; color: var(--muted-foreground); }
+.wb-prose table { border-collapse: collapse; font-size: 13px; }
+.wb-prose th, .wb-prose td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
+.wb-prose hr { border-color: var(--border); }
+
+.wb-inline-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.88em;
+  padding: 0.1em 0.35em;
+  border-radius: 5px;
+  background: var(--muted);
+}
+
+.wb-code, .wb-code pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  border-radius: 10px;
+  background: var(--surface-2);
+  box-shadow: var(--shadow-1);
+  overflow-x: auto;
+}
+.wb-code pre, pre.wb-code { padding: 10px 12px; }
+.wb-code > pre { box-shadow: none; }
+/* shiki dual themes */
+.wb-code .shiki, .wb-code .shiki span { color: var(--shiki-light); background-color: transparent !important; }
+.dark .wb-code .shiki, .dark .wb-code .shiki span { color: var(--shiki-dark); }
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .wb-code .shiki, :root:not(.light) .wb-code .shiki span { color: var(--shiki-dark); }
+}
+
+.wb-tool-pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  box-shadow: var(--shadow-1);
+}

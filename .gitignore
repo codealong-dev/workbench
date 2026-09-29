@@ -1,0 +1,16 @@
+# Elixir
+/server/_build/
+/server/deps/
+/server/erl_crash.dump
+/server/priv/static/
+*.db
+*.db-shm
+*.db-wal
+
+# Node
+node_modules/
+/sidecar/dist/
+/web/dist/
+*.tsbuildinfo
+
+.DS_Store

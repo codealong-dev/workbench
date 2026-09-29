@@ -1,0 +1,7 @@
+{"type":"turn.started","turn_id":"e0ecec0e-64eb-4bad-953b-0997f250c00c"}
+{"type":"tool.started","item_id":"toolu_01PH9SNmUxMTbsJ3CSthcXKP","name":"Bash","input":{"command":"touch created.txt && echo made"}}
+{"type":"approval.requested","request_id":"toolu_01PH9SNmUxMTbsJ3CSthcXKP","tool":"Bash","input":{"command":"touch created.txt && echo made"},"reason":null}
+{"type":"tool.completed","item_id":"toolu_01PH9SNmUxMTbsJ3CSthcXKP","output":"made","truncated":false,"is_error":false}
+{"type":"text.delta","item_id":"msg_011CfY865v8Eo53g28pPWQfk:0","text":"made"}
+{"type":"item.completed","item":{"id":"msg_011CfY865v8Eo53g28pPWQfk:0","kind":"assistant_message","text":"made"}}
+{"type":"turn.completed","turn_id":"e0ecec0e-64eb-4bad-953b-0997f250c00c","status":"ok","usage":{"input_tokens":4,"output_tokens":59,"cache_read_input_tokens":27551,"cache_creation_input_tokens":4281},"cost_usd":0.024214199999999998}

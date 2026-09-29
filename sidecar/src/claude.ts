@@ -1,0 +1,148 @@
+// Claude sidecar: one process per thread, spawned by Workbench.Provider.Claude
+// with cwd = the thread's worktree.
+//
+// stdin:  one JSON op per line: start, send, interrupt, approve, set_mode, stop
+// stdout: one normalized event per line (nothing else is ever written there)
+// stderr: logs
+//
+// Uses the Claude Code login on this machine (subscription or API key), like
+// running `claude` in a terminal. Personal use only.
+
+import { createInterface } from "node:readline";
+import { randomUUID } from "node:crypto";
+import { query, type PermissionMode, type Query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { Inbox } from "./inbox.ts";
+import { initialState, normalize, type Event } from "./normalize.ts";
+
+type Decision = "allow" | "allow_session" | "deny";
+type Op =
+  | { op: "start"; cwd?: string; resume?: string | null; model?: string | null; mode?: PermissionMode }
+  | { op: "send"; text: string }
+  | { op: "interrupt" }
+  | { op: "approve"; request_id: string; decision: Decision }
+  | { op: "set_mode"; mode: PermissionMode }
+  | { op: "stop" };
+
+const log = (...a: unknown[]) => process.stderr.write(`[sidecar] ${a.map(String).join(" ")}\n`);
+const emit = (e: Event) => process.stdout.write(JSON.stringify(e) + "\n");
+
+const inbox = new Inbox<SDKUserMessage>();
+const pending = new Map<string, (d: Decision) => void>();
+const st = initialState();
+let q: Query | null = null;
+let stopping = false;
+
+function start(op: Extract<Op, { op: "start" }>) {
+  if (q) return log("already started");
+  const claudeBin = process.env.WB_CLAUDE_BIN;
+
+  q = query({
+    prompt: inbox,
+    options: {
+      cwd: op.cwd ?? process.cwd(),
+      ...(op.resume ? { resume: op.resume } : {}),
+      ...(op.model ? { model: op.model } : {}),
+      permissionMode: op.mode ?? "default",
+      ...(claudeBin ? { pathToClaudeCodeExecutable: claudeBin } : {}),
+      systemPrompt: { type: "preset", preset: "claude_code" },
+      settingSources: ["user", "project", "local"], // CLAUDE.md, skills, hooks, permissions
+      includePartialMessages: true,
+      stderr: (data) => process.stderr.write(data),
+      canUseTool: async (tool, input, opts) => {
+        const request_id = opts.toolUseID ?? randomUUID();
+        emit({
+          type: "approval.requested",
+          request_id,
+          tool,
+          input,
+          reason: opts.title ?? opts.decisionReason ?? null,
+        });
+
+        const decision = await new Promise<Decision>((resolve) => {
+          pending.set(request_id, resolve);
+          opts.signal.addEventListener("abort", () => resolve("deny"), { once: true });
+        });
+        pending.delete(request_id);
+
+        if (decision === "deny") return { behavior: "deny", message: "Denied by user" };
+        return {
+          behavior: "allow",
+          updatedInput: input,
+          ...(decision === "allow_session" && opts.suggestions ? { updatedPermissions: opts.suggestions } : {}),
+        };
+      },
+    },
+  });
+
+  pump(q);
+}
+
+async function pump(q: Query) {
+  try {
+    for await (const m of q) for (const e of normalize(st, m)) emit(e);
+    if (!stopping) {
+      emit({ type: "error", message: "Claude session ended unexpectedly", fatal: true });
+      process.exit(1);
+    }
+  } catch (err) {
+    if (stopping) return;
+    emit({ type: "error", message: `Claude SDK error: ${(err as Error)?.message ?? err}`, fatal: true });
+    process.exit(1);
+  }
+}
+
+function send(text: string) {
+  if (!q) return emit({ type: "error", message: "send before start", fatal: false });
+  st.turnId = randomUUID();
+  emit({ type: "turn.started", turn_id: st.turnId });
+  inbox.push({ type: "user", message: { role: "user", content: text }, parent_tool_use_id: null } as SDKUserMessage);
+}
+
+async function interrupt() {
+  if (!q || !st.turnId) return;
+  st.interrupting = true;
+  for (const resolve of pending.values()) resolve("deny");
+  await q.interrupt().catch((e) => log("interrupt failed:", e?.message ?? e));
+}
+
+async function stop(code = 0) {
+  if (stopping) return;
+  stopping = true;
+  inbox.close();
+  if (q && st.turnId) await Promise.race([q.interrupt().catch(() => {}), new Promise((r) => setTimeout(r, 1500))]);
+  q?.close();
+  process.exit(code);
+}
+
+async function handle(op: Op) {
+  switch (op.op) {
+    case "start":
+      return start(op);
+    case "send":
+      return send(op.text);
+    case "interrupt":
+      return interrupt();
+    case "approve":
+      return pending.get(op.request_id)?.(op.decision);
+    case "set_mode":
+      return q?.setPermissionMode(op.mode).catch((e) => log("set_mode failed:", e?.message ?? e));
+    case "stop":
+      return stop(0);
+  }
+}
+
+createInterface({ input: process.stdin })
+  .on("line", (line) => {
+    if (!line.trim()) return;
+    let op: Op;
+    try {
+      op = JSON.parse(line);
+    } catch {
+      return log("bad op:", line.slice(0, 200));
+    }
+    handle(op).catch((e) => log(`op ${op.op} failed:`, e?.stack ?? e));
+  })
+  .on("close", () => stop(0)); // stdin EOF: the server is gone
+
+process.on("SIGTERM", () => stop(0));
+process.on("SIGINT", () => stop(0));

@@ -1,0 +1,26 @@
+defmodule Workbench.Application do
+  @moduledoc false
+  use Application
+
+  @impl true
+  def start(_type, _args) do
+    Workbench.Home.ensure!()
+
+    children = [
+      Workbench.Repo,
+      {Ecto.Migrator, repos: [Workbench.Repo], skip: !Application.get_env(:workbench, :migrate_on_boot, true)},
+      {Phoenix.PubSub, name: Workbench.PubSub},
+      {Registry, keys: :unique, name: Workbench.Threads.Registry},
+      {DynamicSupervisor, name: Workbench.Threads.Supervisor, strategy: :one_for_one},
+      WorkbenchWeb.Endpoint
+    ]
+
+    Supervisor.start_link(children, strategy: :one_for_one, name: Workbench.Supervisor)
+  end
+
+  @impl true
+  def config_change(changed, _new, removed) do
+    WorkbenchWeb.Endpoint.config_change(changed, removed)
+    :ok
+  end
+end

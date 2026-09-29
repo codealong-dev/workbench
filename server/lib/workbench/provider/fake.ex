@@ -1,0 +1,240 @@
+defmodule Workbench.Provider.Fake do
+  @moduledoc """
+  A provider that needs no agent: for tests and UI work.
+
+  With `WB_FAKE_SCRIPT=path.jsonl` (or `config :workbench, fake_script: path`)
+  it replays recorded events, one turn per `send`. Turns are separated by
+  `{"fake":"turn"}` lines, `{"fake":"sleep","ms":50}` pauses, and every other
+  line is an event. The script loops; ids get a per-turn suffix so they stay
+  unique.
+
+  Without a script it generates a reply that echoes the prompt with some
+  markdown, a reasoning block and a Bash tool call. A prompt containing
+  "approve" also asks for approval before the tool runs.
+
+  Output goes through the same `{:stdout, io, line}` path as real agents, so
+  the server's line handling is exercised too.
+  """
+  @behaviour Workbench.Provider
+
+  @line_delay 12
+
+  @impl true
+  def open(opts) do
+    server = self()
+    turns = load_script()
+    session_id = opts[:resume] || "fake-" <> Integer.to_string(System.unique_integer([:positive]))
+    pid = spawn(fn -> init_replayer(server, session_id, turns) end)
+    Process.monitor(pid)
+    {:ok, %{io: pid, pid: pid}}
+  end
+
+  @impl true
+  def send_turn(%{io: pid} = p, text) do
+    send(pid, {:send, text})
+    {:ok, p}
+  end
+
+  @impl true
+  def interrupt(%{io: pid} = p) do
+    send(pid, :interrupt)
+    {:ok, p}
+  end
+
+  @impl true
+  def respond(%{io: pid} = p, request_id, decision) do
+    send(pid, {:respond, request_id, decision})
+    {:ok, p}
+  end
+
+  @impl true
+  def set_mode(p, _mode), do: {:ok, p}
+
+  @impl true
+  def handle_line(p, line), do: {Workbench.Provider.decode_line(line), p}
+
+  @impl true
+  def close(%{io: pid}) do
+    Process.exit(pid, :shutdown)
+    :ok
+  end
+
+  # -- script loading ---------------------------------------------------------
+
+  defp load_script do
+    path = System.get_env("WB_FAKE_SCRIPT") || Application.get_env(:workbench, :fake_script)
+
+    if path && File.exists?(path) do
+      path
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.map(&Jason.decode!/1)
+      |> Enum.chunk_by(&(&1 == %{"fake" => "turn"}))
+      |> Enum.reject(&(&1 == [%{"fake" => "turn"}]))
+    else
+      nil
+    end
+  end
+
+  # -- replayer process -------------------------------------------------------
+
+  defp init_replayer(server, session_id, turns) do
+    emit(server, %{"type" => "session.started", "session_id" => session_id, "model" => "fake"})
+    loop(%{server: server, turns: turns, n: 0})
+  end
+
+  defp loop(st) do
+    receive do
+      {:send, text} ->
+        n = st.n + 1
+        steps = turn_steps(st.turns, n, text)
+        play(st.server, steps, n)
+        loop(%{st | n: n})
+
+      _ ->
+        loop(st)
+    end
+  end
+
+  defp turn_steps(nil, n, text), do: generated_turn(n, text)
+
+  defp turn_steps(turns, n, _text) do
+    turns |> Enum.at(rem(n - 1, length(turns))) |> Enum.map(&suffix_ids(&1, n))
+  end
+
+  defp play(_server, [], _n), do: :done
+
+  defp play(server, [%{"fake" => "sleep", "ms" => ms} | rest], n) do
+    case wait(ms) do
+      :interrupt -> interrupted(server, n)
+      _ -> play(server, rest, n)
+    end
+  end
+
+  defp play(server, [%{"type" => "approval.requested", "request_id" => rid} = ev | rest], n) do
+    emit(server, ev)
+
+    receive do
+      {:respond, ^rid, decision} ->
+        emit(server, %{"type" => "approval.resolved", "request_id" => rid, "decision" => decision})
+        rest = if decision == "deny", do: deny_rest(rest), else: rest
+        play(server, rest, n)
+
+      :interrupt ->
+        emit(server, %{"type" => "approval.resolved", "request_id" => rid, "decision" => "cancelled"})
+        interrupted(server, n)
+    end
+  end
+
+  defp play(server, [ev | rest], n) do
+    emit(server, ev)
+
+    case wait(@line_delay) do
+      :interrupt -> interrupted(server, n)
+      _ -> play(server, rest, n)
+    end
+  end
+
+  defp deny_rest(rest) do
+    Enum.map(rest, fn
+      %{"type" => "tool.completed"} = ev -> %{ev | "output" => "Denied by user", "is_error" => true}
+      ev -> ev
+    end)
+  end
+
+  defp interrupted(server, n) do
+    emit(server, %{
+      "type" => "turn.completed",
+      "turn_id" => "t#{n}",
+      "status" => "interrupted",
+      "usage" => %{"input_tokens" => 0, "output_tokens" => 0}
+    })
+  end
+
+  defp wait(ms) do
+    receive do
+      :interrupt -> :interrupt
+    after
+      ms -> :ok
+    end
+  end
+
+  defp emit(server, event), do: send(server, {:stdout, self(), Jason.encode!(event) <> "\n"})
+
+  defp suffix_ids(ev, n) do
+    Map.new(ev, fn
+      {k, v} when k in ~w(item_id request_id turn_id parent_id) and is_binary(v) -> {k, "#{v}.#{n}"}
+      {"item", %{"id" => id} = item} -> {"item", %{item | "id" => "#{id}.#{n}"}}
+      kv -> kv
+    end)
+  end
+
+  # -- generated turn ---------------------------------------------------------
+
+  defp generated_turn(n, text) do
+    turn = "t#{n}"
+    r = "r#{n}"
+    m1 = "m#{n}a"
+    m2 = "m#{n}b"
+    tool = "tool#{n}"
+
+    thinking = "The user wrote #{String.length(text)} characters. I'll echo it back and list the files."
+
+    answer =
+      "You said:\n\n> #{text}\n\nHere is what I'd run first:\n\n```bash\nls -la\n```\n"
+
+    followup =
+      "Done. A few notes:\n\n- this reply is **generated** by `Provider.Fake`\n- it streams in small chunks, like a real agent\n- turn #{n} of this session\n"
+
+    approval =
+      if String.contains?(String.downcase(text), "approve"),
+        do: [
+          %{
+            "type" => "approval.requested",
+            "request_id" => "req#{n}",
+            "tool" => "Bash",
+            "input" => %{"command" => "ls -la"},
+            "reason" => "Bash is not allowed in default mode"
+          }
+        ],
+        else: []
+
+    [%{"type" => "turn.started", "turn_id" => turn}] ++
+      deltas("reasoning.delta", r, thinking) ++
+      [item(r, "reasoning", thinking, turn)] ++
+      deltas("text.delta", m1, answer) ++
+      [item(m1, "assistant_message", answer, turn)] ++
+      [%{"type" => "tool.started", "item_id" => tool, "name" => "Bash", "input" => %{"command" => "ls -la", "description" => "List files"}}] ++
+      approval ++
+      [%{"fake" => "sleep", "ms" => 300}] ++
+      [
+        %{
+          "type" => "tool.completed",
+          "item_id" => tool,
+          "output" => "total 3\ndrwxr-xr-x  4 you  staff  128 .\n-rw-r--r--  1 you  staff   42 README.md\n",
+          "truncated" => false,
+          "is_error" => false
+        }
+      ] ++
+      deltas("text.delta", m2, followup) ++
+      [item(m2, "assistant_message", followup, turn)] ++
+      [
+        %{
+          "type" => "turn.completed",
+          "turn_id" => turn,
+          "status" => "ok",
+          "usage" => %{"input_tokens" => 1200 + n, "output_tokens" => 80},
+          "cost_usd" => 0.0
+        }
+      ]
+  end
+
+  defp item(id, kind, text, turn),
+    do: %{"type" => "item.completed", "item" => %{"id" => id, "kind" => kind, "text" => text, "turn_id" => turn}}
+
+  defp deltas(type, id, text) do
+    text
+    |> String.split(~r/(?<=\s)/u)
+    |> Enum.map(&%{"type" => type, "item_id" => id, "text" => &1})
+  end
+end
