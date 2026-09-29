@@ -40,6 +40,26 @@ defmodule WorkbenchWeb.ThreadChannel do
     result(Threads.set_mode(socket.assigns.thread_id, mode), socket)
   end
 
+  # `{}` full diff, `{summary: true}` file list only, `{path}` one file's patch.
+  def handle_in("diff", params, socket) do
+    opts = [summary: params["summary"] == true, path: params["path"]]
+
+    with %{} = thread <- Threads.get(socket.assigns.thread_id),
+         {:ok, diff} <- Workbench.Review.diff(thread, opts) do
+      {:reply, {:ok, diff}, socket}
+    else
+      nil -> {:reply, {:error, %{reason: "not_found"}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
+    end
+  end
+
+  def handle_in("open_editor", %{"editor" => editor} = params, socket) do
+    case Threads.get(socket.assigns.thread_id) do
+      nil -> {:reply, {:error, %{reason: "not_found"}}, socket}
+      thread -> result(Workbench.Editors.open(editor, thread.worktree_path, params["path"]), socket)
+    end
+  end
+
   def handle_in("archive", _params, socket) do
     result(Threads.archive(socket.assigns.thread_id), socket)
   end

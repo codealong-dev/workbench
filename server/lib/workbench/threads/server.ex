@@ -72,11 +72,16 @@ defmodule Workbench.Threads.Server do
 
   @impl true
   def handle_continue({:recover, previous}, st) when previous in @busy do
+    Items.interrupt_running_tools(st.thread.id)
     st = emit(st, %{"type" => "error", "message" => "Server restarted; the turn in progress was lost.", "fatal" => false})
     {:noreply, persist_status(st, "idle")}
   end
 
-  def handle_continue({:recover, _}, st), do: {:noreply, persist_status(st, "idle")}
+  def handle_continue({:recover, _}, st) do
+    # also covers a BEAM that died without marking the thread busy
+    Items.interrupt_running_tools(st.thread.id)
+    {:noreply, persist_status(st, "idle")}
+  end
 
   # Archive: stop everything, tear down, remove the worktree (branch kept), exit.
   def handle_continue(:archive, st) do

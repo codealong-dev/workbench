@@ -83,3 +83,23 @@ export interface Snapshot {
   live: LiveItem[];
   pending: Approval[];
 }
+
+export type FileStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | "untracked";
+
+export interface DiffFile {
+  path: string;
+  old_path: string | null;
+  status: FileStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+}
+
+export interface DiffResult {
+  base: string;
+  files: DiffFile[];
+  patch?: string | null;
+  truncated?: boolean;
+}
+
+export type Editor = "zed" | "code" | "cursor" | "finder";

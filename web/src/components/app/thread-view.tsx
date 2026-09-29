@@ -1,16 +1,21 @@
 import { useCallback, useState } from "react";
-import { Archive, FolderGit2, GitBranch } from "lucide-react";
+import { Archive, Cpu, FileDiff as FileDiffIcon, FolderGit2, GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { InputMessage, type QueuedMessage } from "@/components/ui/input-message";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { push, useThreadChannel } from "@/hooks/use-channels";
+import { fetchFilePatch, useDiff } from "@/hooks/use-diff";
+import { cn } from "@/lib/utils";
 import { useStore } from "@/store";
-import type { Decision, Thread } from "@/contracts";
+import type { Decision, Editor, Thread } from "@/contracts";
 import { Timeline } from "./timeline";
 import { StatusDot } from "./status-dot";
 import { MODES } from "./modes";
+import { ChangesPanel, Counts } from "./changes-panel";
+import { OpenMenu, preferredEditor } from "./open-menu";
+
+const CHANGES_KEY = "wb.changesOpen";
 
 function ArchiveButton({ thread, onArchive }: { thread: Thread; onArchive: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
@@ -63,6 +68,21 @@ function ArchiveButton({ thread, onArchive }: { thread: Thread; onArchive: () =>
 
 export function ThreadView({ id }: { id: string }) {
   const { channel, joinError } = useThreadChannel(id);
+  const [changesOpen, setChangesOpen] = useState(() => localStorage.getItem(CHANGES_KEY) === "1");
+  const toggleChanges = (open: boolean) => {
+    setChangesOpen(open);
+    localStorage.setItem(CHANGES_KEY, open ? "1" : "0");
+  };
+  const threadStatus = useStore((s) => s.byId[id]?.status);
+  const { diff, error: diffError, loading: diffLoading, refresh: refreshDiff } = useDiff(channel, threadStatus, changesOpen);
+
+  const openIn = useCallback(
+    async (editor: Editor, path?: string): Promise<string | null> => {
+      const r = await push(channel.current, "open_editor", { editor, ...(path ? { path } : {}) });
+      return r.ok ? null : r.reason;
+    },
+    [channel],
+  );
   const ts = useStore((s) => s.byId[id]);
   const [draft, setDraft] = useState("");
   const [queue, setQueue] = useState<QueuedMessage[]>([]);
@@ -113,11 +133,14 @@ export function ThreadView({ id }: { id: string }) {
               <FolderGit2 className="size-3 shrink-0" />
               <span className="truncate font-mono">{thread.worktree_path.replace(/^\/(Users|home)\/[^/]+/, "~")}</span>
             </span>
+            <span className="flex shrink-0 items-center gap-1">
+              <Cpu className="size-3" />
+              {ts.model ?? thread.provider}
+            </span>
           </div>
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          <Badge color="gray">{ts.model ?? thread.provider}</Badge>
-          <div className="w-48">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          <div className="w-44">
             <Select
               value={thread.mode}
               onValueChange={(mode) => void push(channel.current, "set_mode", { mode })}
@@ -133,26 +156,59 @@ export function ThreadView({ id }: { id: string }) {
               </SelectContent>
             </Select>
           </div>
+          <Button
+            size="compact"
+            variant={changesOpen ? "secondary" : "ghost"}
+            leadingIcon={FileDiffIcon}
+            onClick={() => toggleChanges(!changesOpen)}
+            title="Changes against the base branch"
+          >
+            {diff && diff.files.length > 0 ? (
+              <Counts
+                additions={diff.files.reduce((a, f) => a + f.additions, 0)}
+                deletions={diff.files.reduce((a, f) => a + f.deletions, 0)}
+              />
+            ) : (
+              "Changes"
+            )}
+          </Button>
+          <OpenMenu path={thread.worktree_path} onOpen={(editor) => openIn(editor)} />
           <ArchiveButton thread={thread} onArchive={async () => void (await push(channel.current, "archive"))} />
         </div>
       </header>
 
-      <Timeline items={ts.items} live={ts.live} pending={ts.pending} status={status} onDecide={decide} />
+      <div className="flex min-h-0 flex-1">
+        <div className={cn("flex min-w-0 flex-1 flex-col")}>
+          <Timeline items={ts.items} live={ts.live} pending={ts.pending} status={status} onDecide={decide} />
 
-      <div className="mx-auto w-full max-w-3xl px-6 pb-5">
-        {sendError && <div className="mb-2 text-[12px] text-destructive">{sendError}</div>}
-        <InputMessage
-          value={draft}
-          onValueChange={setDraft}
-          onSend={(text) => void send(text)}
-          status={busy ? "streaming" : "idle"}
-          onStop={() => void push(channel.current, "interrupt")}
-          queue={queue}
-          onQueueChange={setQueue}
-          history={history}
-          placeholder={busy ? "Queue a follow-up…" : "Ask Claude to do something…"}
-          maxRows={12}
-        />
+          <div className="mx-auto w-full max-w-3xl px-6 pb-5">
+            {sendError && <div className="mb-2 text-[12px] text-destructive">{sendError}</div>}
+            <InputMessage
+              value={draft}
+              onValueChange={setDraft}
+              onSend={(text) => void send(text)}
+              status={busy ? "streaming" : "idle"}
+              onStop={() => void push(channel.current, "interrupt")}
+              queue={queue}
+              onQueueChange={setQueue}
+              history={history}
+              placeholder={busy ? "Queue a follow-up…" : "Ask Claude to do something…"}
+              maxRows={12}
+            />
+          </div>
+        </div>
+
+        {changesOpen && (
+          <ChangesPanel
+            diff={diff}
+            error={diffError}
+            loading={diffLoading}
+            onRefresh={() => void refreshDiff()}
+            onClose={() => toggleChanges(false)}
+            onOpenFile={(path) => void openIn(preferredEditor(), path)}
+            loadFile={(path) => fetchFilePatch(channel.current, path)}
+          />
+        )}
       </div>
     </div>
   );

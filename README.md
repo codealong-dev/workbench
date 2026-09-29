@@ -14,7 +14,8 @@ A local-first workbench for running coding agents in parallel. A Phoenix app run
 | M2 projects and worktrees | Done: projects, a worktree + `wb/<slug>` branch per thread, `.workbench.json` setup/teardown, archive, project sidebar |
 | M3 control | Mostly done in M1 (approvals, stop, modes); tool rendering by name is in |
 | M4 persistence | Mostly done in M1; "Load earlier" paging is left |
-| M5 review | Next: diff panel and "Open in editor" |
+| M5 review | Done: changes panel (diff vs base, split/unified, untracked files), Open in Zed / VS Code / Cursor / Finder |
+| M6 Codex | Next |
 
 ## Requirements
 
@@ -30,6 +31,8 @@ make dev       # Phoenix :4000 + Vite :5173; open http://127.0.0.1:5173
 ```
 
 Add a project (any local git repo), then press **N** or **+** for a new thread. Each thread gets its own worktree at `~/.workbench/worktrees/<project>/<slug>` on branch `wb/<slug>`, cut from the base branch you pick. Pick **Claude Code**, or **Fake** to work on the UI without spending tokens.
+
+**Changes** in the thread header shows the diff against the thread's base (merge base with the branch it was cut from, so commits and uncommitted edits both count; in-repo threads diff against HEAD). It refreshes whenever the agent finishes a turn. **Open in** opens the worktree in Zed, VS Code, Cursor or Finder, using the editor's CLI if it's on PATH or `open -a` otherwise; the icon on each file in the diff opens that file.
 
 Archiving a thread stops the agent, runs teardown and deletes the worktree. The branch is kept.
 

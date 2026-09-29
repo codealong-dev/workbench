@@ -128,6 +128,19 @@ defmodule Workbench.ServerTest do
     assert Threads.snapshot(t.id).status == "idle"
   end
 
+  test "tool calls cut off by a restart are marked interrupted", %{dir: dir} do
+    t = create_thread(dir)
+    Threads.subscribe(t.id)
+    :ok = Threads.send_message(t.id, "please approve")
+    collect_until(type?("approval.requested"))
+    assert [%{"status" => "running"}] = Items.last(t.id) |> Enum.filter(&(&1["kind"] == "tool"))
+
+    Process.exit(Threads.whereis(t.id), :kill)
+    Process.sleep(50)
+    _ = Threads.snapshot(t.id)
+    assert [%{"status" => "done", "is_error" => true}] = Items.last(t.id) |> Enum.filter(&(&1["kind"] == "tool"))
+  end
+
   test "unknown thread id" do
     assert {:error, :not_found} = Threads.ensure_started(Ecto.UUID.generate())
   end

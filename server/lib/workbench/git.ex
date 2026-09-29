@@ -10,6 +10,13 @@ defmodule Workbench.Git do
     e in ErlangError -> {:error, "git not available: #{Exception.message(e)}"}
   end
 
+  @doc "Raw `{stdout, exit_status}`, untrimmed (for `-z` output and `--no-index` diffs)."
+  def cmd(dir, args) do
+    System.cmd("git", ["-C", dir | args], stderr_to_stdout: false, env: [{"GIT_TERMINAL_PROMPT", "0"}])
+  rescue
+    e in ErlangError -> {"git not available: #{Exception.message(e)}", 127}
+  end
+
   def toplevel(dir) do
     if File.dir?(dir), do: run(dir, ["rev-parse", "--show-toplevel"]), else: {:error, "#{dir} is not a directory"}
   end

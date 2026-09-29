@@ -62,6 +62,22 @@ defmodule Workbench.Items do
     |> Enum.map(fn %{seq: seq, payload: p} -> Map.put(p, "seq", seq) end)
   end
 
+  @doc "After a crash or restart, tool calls that never completed are marked interrupted."
+  def interrupt_running_tools(thread_id) do
+    rows =
+      Item
+      |> where([i], i.thread_id == ^thread_id and i.kind == "tool")
+      |> Repo.all()
+      |> Enum.filter(&(&1.payload["status"] == "running"))
+
+    for row <- rows do
+      payload = Map.merge(row.payload, %{"status" => "done", "is_error" => true, "output" => row.payload["output"] || "Interrupted (server restarted)"})
+      row |> Ecto.Changeset.change(payload: payload) |> Repo.update!()
+    end
+
+    length(rows)
+  end
+
   def max_seq(thread_id) do
     Item
     |> where([i], i.thread_id == ^thread_id)
