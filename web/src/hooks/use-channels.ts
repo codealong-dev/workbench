@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Channel } from "phoenix";
 import { socket } from "@/socket";
 import { useStore } from "@/store";
-import type { Snapshot, Thread, ThreadEvent } from "@/contracts";
+import type { Project, Snapshot, Thread, ThreadEvent } from "@/contracts";
 
 type Reply = { ok: true; payload?: unknown } | { ok: false; reason: string };
 
@@ -28,19 +28,23 @@ export function useLobby() {
     if (lobby) return;
     const ch = socket.channel("lobby", {});
     lobby = ch;
-    const { setThreads, upsertThread, setThreadStatus } = useStore.getState();
+    const { setLobby, upsertThread, upsertProject, removeThread, setThreadStatus } = useStore.getState();
+    ch.on("project.upserted", (p: Project) => upsertProject(p));
     ch.on("thread.upserted", (t: Thread) => upsertThread(t));
     ch.on("thread.status", ({ id, status }) => setThreadStatus(id, status));
+    ch.on("thread.archived", ({ id }) => removeThread(id));
     ch.onClose(() => setConnected(false));
     ch.onError(() => setConnected(false));
-    ch.join().receive("ok", (reply: { threads: Thread[] }) => {
-      setThreads(reply.threads);
+    ch.join().receive("ok", (reply: { projects: Project[]; threads: Thread[] }) => {
+      setLobby(reply.projects, reply.threads);
       setConnected(true);
     });
   }, []);
 
-  return { connected, lobby: () => lobby };
+  return { connected };
 }
+
+export const lobbyChannel = () => lobby;
 
 /** Joins thread:<id> while mounted. Rejoins (after a reconnect) re-hydrate from a fresh snapshot. */
 export function useThreadChannel(id: string | null) {

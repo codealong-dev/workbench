@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Approval, Item, LiveItem, Snapshot, Status, Thread, ThreadEvent, ToolItem } from "./contracts";
+import type { Approval, Item, LiveItem, Project, Snapshot, Status, Thread, ThreadEvent, ToolItem } from "./contracts";
 
 export interface ThreadState {
   thread: Thread;
@@ -12,9 +12,12 @@ export interface ThreadState {
 }
 
 interface Store {
+  projects: Project[];
   threads: Thread[];
   byId: Record<string, ThreadState>;
-  setThreads: (threads: Thread[]) => void;
+  setLobby: (projects: Project[], threads: Thread[]) => void;
+  upsertProject: (project: Project) => void;
+  removeThread: (id: string) => void;
   upsertThread: (thread: Thread) => void;
   setThreadStatus: (id: string, status: Status) => void;
   hydrate: (snap: Snapshot) => void;
@@ -22,10 +25,24 @@ interface Store {
 }
 
 export const useStore = create<Store>((set) => ({
+  projects: [],
   threads: [],
   byId: {},
 
-  setThreads: (threads) => set({ threads }),
+  setLobby: (projects, threads) => set({ projects, threads }),
+
+  upsertProject: (project) =>
+    set((s) => ({
+      projects: s.projects.some((p) => p.id === project.id)
+        ? s.projects.map((p) => (p.id === project.id ? project : p))
+        : [...s.projects, project].sort((a, b) => a.name.localeCompare(b.name)),
+    })),
+
+  removeThread: (id) =>
+    set((s) => {
+      const { [id]: _gone, ...byId } = s.byId;
+      return { threads: s.threads.filter((t) => t.id !== id), byId };
+    }),
 
   upsertThread: (thread) =>
     set((s) => {

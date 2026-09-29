@@ -40,6 +40,10 @@ defmodule WorkbenchWeb.ThreadChannel do
     result(Threads.set_mode(socket.assigns.thread_id, mode), socket)
   end
 
+  def handle_in("archive", _params, socket) do
+    result(Threads.archive(socket.assigns.thread_id), socket)
+  end
+
   def handle_in(event, _params, socket) do
     {:reply, {:error, %{reason: "unknown or malformed message: #{event}"}}, socket}
   end

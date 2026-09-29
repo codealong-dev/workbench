@@ -36,6 +36,9 @@ defmodule Workbench.Threads.Server do
       nil ->
         :ignore
 
+      %Thread{archived_at: %DateTime{}} ->
+        :ignore
+
       thread ->
         Process.flag(:trap_exit, true)
         Logger.metadata(thread_id: id)
@@ -58,7 +61,9 @@ defmodule Workbench.Threads.Server do
           # request_id => approval.requested event
           pending: %{},
           # item_id => tool item, until tool.completed
-          tools: %{}
+          tools: %{},
+          # project setup commands in flight: %{cmds, env, n, current: %{io, pid, item_id, out}}
+          setup: nil
         }
 
         {:ok, st, {:continue, {:recover, thread.status}}}
@@ -72,6 +77,37 @@ defmodule Workbench.Threads.Server do
   end
 
   def handle_continue({:recover, _}, st), do: {:noreply, persist_status(st, "idle")}
+
+  # Archive: stop everything, tear down, remove the worktree (branch kept), exit.
+  def handle_continue(:archive, st) do
+    st = st |> flush() |> close_provider() |> stop_setup()
+    thread = st.thread
+
+    with %{} = project <- thread.project_id && Workbench.Projects.get(thread.project_id),
+         true <- Workbench.Worktrees.managed?(project, thread.worktree_path) do
+      env = [{"WB_REPO", project.repo_path}, {"WB_WORKTREE", thread.worktree_path}]
+
+      for cmd <- Workbench.Projects.config(project).teardown do
+        case Workbench.Provider.Proc.run_sync(cmd, thread.worktree_path, env, :timer.minutes(2)) do
+          {:ok, _} -> :ok
+          {:error, out} -> Logger.warning("teardown `#{cmd}` failed: #{out}")
+        end
+      end
+
+      case Workbench.Worktrees.remove(project, thread.worktree_path) do
+        :ok -> :ok
+        {:error, msg} -> Logger.warning("worktree remove failed: #{msg}")
+      end
+    end
+
+    thread =
+      thread
+      |> Ecto.Changeset.change(archived_at: DateTime.utc_now(), status: "idle")
+      |> Repo.update!()
+
+    Threads.broadcast_lobby({:thread_archived, thread.id})
+    {:stop, :normal, %{st | thread: thread, status: "idle"}}
+  end
 
   # -- calls ------------------------------------------------------------------
 
@@ -106,6 +142,11 @@ defmodule Workbench.Threads.Server do
 
         {:reply, {:error, message}, st}
     end
+  end
+
+  def handle_call(:interrupt, _from, %{setup: %{current: %{io: io}}} = st) do
+    Workbench.Provider.Proc.stop(io)
+    {:reply, :ok, %{st | setup: %{st.setup | cmds: []}}}
   end
 
   def handle_call(:interrupt, _from, %{pstate: p, status: s} = st) when p != nil and s in @busy do
@@ -165,6 +206,14 @@ defmodule Workbench.Threads.Server do
     {:reply, snap, st}
   end
 
+  def handle_call(:archive, _from, st), do: {:reply, :ok, st, {:continue, :archive}}
+
+  @impl true
+  def handle_cast({:setup, cmds, env}, st) do
+    st = %{st | setup: %{cmds: cmds, env: env, n: 0, current: nil}} |> set_status("running")
+    {:noreply, next_setup(st)}
+  end
+
   # -- provider output ----------------------------------------------------------
 
   @impl true
@@ -193,6 +242,15 @@ defmodule Workbench.Threads.Server do
   end
 
   def handle_info(:idle, st), do: {:noreply, %{st | idle_ref: nil}}
+
+  def handle_info({stream, io, data}, %{setup: %{current: %{io: io} = cur}} = st)
+      when stream in [:stdout, :stderr] do
+    out = String.slice(cur.out <> data, -16_000, 16_000)
+    {:noreply, %{st | setup: %{st.setup | current: %{cur | out: out}}}}
+  end
+
+  def handle_info({:EXIT, pid, reason}, %{setup: %{current: %{pid: pid}}} = st),
+    do: {:noreply, setup_finished(st, reason)}
 
   def handle_info(msg, st) do
     Logger.debug("ignored message: #{inspect(msg, limit: 5)}")
@@ -435,6 +493,65 @@ defmodule Workbench.Threads.Server do
   end
 
   defp ensure_provider(st), do: {:ok, st}
+
+  # -- project setup commands ---------------------------------------------------
+
+  defp next_setup(%{setup: %{cmds: []}} = st), do: %{st | setup: nil} |> set_status("idle")
+
+  defp next_setup(%{setup: %{cmds: [cmd | rest]} = setup} = st) do
+    n = setup.n + 1
+    item_id = "setup-#{uid()}"
+    st = emit(st, %{"type" => "tool.started", "item_id" => item_id, "name" => "Setup", "input" => %{"command" => cmd}})
+
+    case Workbench.Provider.Proc.start(["sh", "-c", cmd], st.thread.worktree_path, setup.env) do
+      {:ok, %{io: io, pid: pid}} ->
+        %{st | setup: %{setup | cmds: rest, n: n, current: %{io: io, pid: pid, item_id: item_id, out: ""}}}
+
+      {:error, reason} ->
+        st
+        |> emit(%{"type" => "tool.completed", "item_id" => item_id, "output" => inspect(reason), "is_error" => true, "truncated" => false})
+        |> emit(%{"type" => "error", "message" => "Setup could not start `#{cmd}`: #{inspect(reason)}", "fatal" => false})
+        |> Map.put(:setup, nil)
+        |> set_status("idle")
+    end
+  end
+
+  defp setup_finished(%{setup: %{current: cur} = setup} = st, reason) do
+    ok = reason == :normal
+    {output, truncated} = tail(cur.out, 8_000)
+
+    st =
+      emit(st, %{
+        "type" => "tool.completed",
+        "item_id" => cur.item_id,
+        "output" => output,
+        "truncated" => truncated,
+        "is_error" => not ok
+      })
+
+    if ok do
+      next_setup(%{st | setup: %{setup | current: nil}})
+    else
+      st
+      |> emit(%{
+        "type" => "error",
+        "message" => "Setup failed (#{Workbench.Provider.Proc.describe_exit(reason)}). The worktree is ready, but later setup steps were skipped.",
+        "fatal" => false
+      })
+      |> Map.put(:setup, nil)
+      |> set_status("idle")
+    end
+  end
+
+  defp stop_setup(%{setup: %{current: %{io: io}}} = st) do
+    Workbench.Provider.Proc.stop(io)
+    %{st | setup: nil}
+  end
+
+  defp stop_setup(st), do: %{st | setup: nil}
+
+  defp tail(s, max) when byte_size(s) <= max, do: {s, false}
+  defp tail(s, max), do: {"…" <> String.slice(s, -max, max), true}
 
   defp close_provider(%{pstate: nil} = st), do: st
 

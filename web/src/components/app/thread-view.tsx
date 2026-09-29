@@ -1,20 +1,65 @@
 import { useCallback, useState } from "react";
-import { FolderGit2 } from "lucide-react";
+import { Archive, FolderGit2, GitBranch } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { InputMessage, type QueuedMessage } from "@/components/ui/input-message";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { push, useThreadChannel } from "@/hooks/use-channels";
 import { useStore } from "@/store";
-import type { Decision, Mode } from "@/contracts";
+import type { Decision, Thread } from "@/contracts";
 import { Timeline } from "./timeline";
 import { StatusDot } from "./status-dot";
+import { MODES } from "./modes";
 
-const MODES: { value: Mode; label: string }[] = [
-  { value: "default", label: "Ask before edits" },
-  { value: "acceptEdits", label: "Accept edits" },
-  { value: "plan", label: "Plan only" },
-  { value: "bypassPermissions", label: "Bypass permissions" },
-];
+function ArchiveButton({ thread, onArchive }: { thread: Thread; onArchive: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  // Worktree threads always record the ref they branched from; in-repo threads don't.
+  const isolated = thread.base_ref != null;
+  return (
+    <>
+      <Button size="icon-compact" variant="ghost" aria-label="Archive thread" title="Archive thread" onClick={() => setOpen(true)}>
+        <Archive />
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent size="sm">
+          <DialogHeader>
+            <DialogTitle>Archive this thread?</DialogTitle>
+            <DialogDescription>
+              {isolated ? (
+                <>
+                  The agent stops, teardown runs and the worktree is deleted, including uncommitted changes. The branch{" "}
+                  <code className="wb-inline-code">{thread.branch}</code> is kept.
+                </>
+              ) : (
+                <>The agent stops and the thread is hidden. Your repo is not touched.</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button size="compact" variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="compact"
+              variant="primary"
+              loading={busy}
+              onClick={async () => {
+                setBusy(true);
+                await onArchive();
+                setBusy(false);
+                setOpen(false);
+              }}
+            >
+              Archive
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
 
 export function ThreadView({ id }: { id: string }) {
   const { channel, joinError } = useThreadChannel(id);
@@ -56,9 +101,18 @@ export function ThreadView({ id }: { id: string }) {
         <StatusDot status={status} />
         <div className="min-w-0">
           <div className="truncate text-[14px] font-medium">{thread.title || "Untitled thread"}</div>
-          <div className="flex items-center gap-1.5 truncate text-[12px] text-muted-foreground">
-            <FolderGit2 className="size-3" />
-            <span className="truncate font-mono">{thread.worktree_path}</span>
+          <div className="flex items-center gap-3 truncate text-[12px] text-muted-foreground">
+            {thread.branch && (
+              <span className="flex items-center gap-1 font-mono" title={thread.base_ref ? `from ${thread.base_ref}` : undefined}>
+                <GitBranch className="size-3" />
+                {thread.branch}
+                {thread.base_ref && <span className="opacity-60">← {thread.base_ref}</span>}
+              </span>
+            )}
+            <span className="flex min-w-0 items-center gap-1" title={thread.worktree_path}>
+              <FolderGit2 className="size-3 shrink-0" />
+              <span className="truncate font-mono">{thread.worktree_path.replace(/^\/(Users|home)\/[^/]+/, "~")}</span>
+            </span>
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
@@ -79,6 +133,7 @@ export function ThreadView({ id }: { id: string }) {
               </SelectContent>
             </Select>
           </div>
+          <ArchiveButton thread={thread} onArchive={async () => void (await push(channel.current, "archive"))} />
         </div>
       </header>
 

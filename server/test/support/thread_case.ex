@@ -61,6 +61,23 @@ defmodule Workbench.ThreadCase do
     end
   end
 
+  @doc "A git repo with one commit on `main`, and optionally a .workbench.json."
+  def git_repo(dir, config \\ nil) do
+    repo = Path.join(dir, "repo")
+    File.mkdir_p!(repo)
+    File.write!(Path.join(repo, "README.md"), "# test\n")
+    if config, do: File.write!(Path.join(repo, ".workbench.json"), Jason.encode!(config))
+    git!(repo, ["init", "-q", "-b", "main"])
+    git!(repo, ["add", "-A"])
+    git!(repo, ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init"])
+    repo
+  end
+
+  def git!(dir, args) do
+    {out, 0} = System.cmd("git", ["-C", dir | args], stderr_to_stdout: true)
+    String.trim(out)
+  end
+
   def type?(type), do: fn env -> env["type"] == type end
 
   def types(events), do: Enum.map(events, & &1["type"])

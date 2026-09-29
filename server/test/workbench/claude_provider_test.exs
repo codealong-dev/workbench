@@ -15,7 +15,8 @@ defmodule Workbench.ClaudeProviderTest do
     events = collect_until(type?("turn.completed"))
 
     assert [%{"cwd" => cwd}] = Enum.filter(events, &(&1["type"] == "session.started"))
-    assert Path.expand(cwd) == Path.expand(dir)
+    # macOS: /var is a symlink to /private/var
+    assert realpath(cwd) == realpath(dir)
     assert "HelLo" != (for %{"type" => "text.delta", "text" => x} <- events, into: "", do: x)
     assert "Hello" == (for %{"type" => "text.delta", "text" => x} <- events, into: "", do: x)
     refute Enum.any?(events, &(&1["type"] == "error"))
@@ -44,6 +45,8 @@ defmodule Workbench.ClaudeProviderTest do
     Process.sleep(300)
     refute alive?(os_pid)
   end
+
+  defp realpath(p), do: p |> then(&System.cmd("pwd", ["-P"], cd: &1)) |> elem(0) |> String.trim()
 
   defp alive?(os_pid), do: match?({_, 0}, System.cmd("kill", ["-0", to_string(os_pid)], stderr_to_stdout: true))
 end

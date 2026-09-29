@@ -6,12 +6,20 @@ export type Mode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
 export type Status = "idle" | "running" | "awaiting_approval" | "error";
 export type Decision = "allow" | "allow_session" | "deny";
 
+export interface Project {
+  id: string;
+  name: string;
+  repo_path: string;
+  default_branch: string | null;
+}
+
 export interface Thread {
   id: string;
   project_id: string | null;
   provider: Provider;
   title: string | null;
   branch: string | null;
+  base_ref: string | null;
   worktree_path: string;
   session_id: string | null;
   mode: Mode;

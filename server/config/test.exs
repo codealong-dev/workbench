@@ -3,7 +3,9 @@ import Config
 config :workbench, Workbench.Repo,
   database: Path.expand("../_build/test/workbench_test.db", __DIR__),
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: 5
+  # one connection: thread servers share the test's sandbox connection, and
+  # several connections racing to open the same SQLite file log "database is locked"
+  pool_size: 1
 
 config :workbench, WorkbenchWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],

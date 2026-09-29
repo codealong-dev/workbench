@@ -11,7 +11,10 @@ A local-first workbench for running coding agents in parallel. A Phoenix app run
 | M0 spikes | Claude SDK and orphan-kill passed in the build sandbox; run `make spikes` on macOS to confirm |
 | M1 one Claude thread end to end | Done: channel, `Threads.Server`, sidecar, chat UI |
 | Pulled forward | Items persisted in SQLite (history survives reloads), resume via `session_id`, approvals, interrupt, mode switch, idle shutdown |
-| M2 projects and worktrees | Next. Threads currently run directly in the directory you give them |
+| M2 projects and worktrees | Done: projects, a worktree + `wb/<slug>` branch per thread, `.workbench.json` setup/teardown, archive, project sidebar |
+| M3 control | Mostly done in M1 (approvals, stop, modes); tool rendering by name is in |
+| M4 persistence | Mostly done in M1; "Load earlier" paging is left |
+| M5 review | Next: diff panel and "Open in editor" |
 
 ## Requirements
 
@@ -26,7 +29,22 @@ make setup     # deps, DB, sidecar build
 make dev       # Phoenix :4000 + Vite :5173; open http://127.0.0.1:5173
 ```
 
-Press **+**, give it a directory, pick **Claude Code** (or **Fake** to work on the UI without spending tokens), and send a message.
+Add a project (any local git repo), then press **N** or **+** for a new thread. Each thread gets its own worktree at `~/.workbench/worktrees/<project>/<slug>` on branch `wb/<slug>`, cut from the base branch you pick. Pick **Claude Code**, or **Fake** to work on the UI without spending tokens.
+
+Archiving a thread stops the agent, runs teardown and deletes the worktree. The branch is kept.
+
+### Project config
+
+Optional `.workbench.json` at the repo root:
+
+```json
+{
+  "setup": ["npm ci", "cp $WB_REPO/.env .env"],
+  "teardown": ["docker compose down"]
+}
+```
+
+Commands run with `sh -c` inside the worktree, with `WB_REPO` and `WB_WORKTREE` set. Setup output shows up in the thread as "Setup" tool calls; a failing step skips the rest but leaves the thread usable.
 
 `make build && cd server && mix phx.server` serves the built UI from Phoenix at http://127.0.0.1:4000.
 

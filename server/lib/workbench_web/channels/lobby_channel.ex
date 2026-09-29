@@ -1,34 +1,85 @@
 defmodule WorkbenchWeb.LobbyChannel do
   @moduledoc """
-  Thread list and creation. M2 adds projects; in M1 a thread is created
-  directly on a directory (`cwd`).
+  Projects and the thread list.
+
+    * join -> `{projects, threads}`
+    * `project.add` `{path}` -> `{project}`
+    * `project.branches` `{project_id}` -> `{branches, default}`
+    * `thread.create` `{project_id, provider, title?, base_ref?, mode?, isolate?}` -> `{thread}`
+      (or `{cwd, ...}` without a project, as in M1)
+    * pushes: `project.upserted`, `thread.upserted`, `thread.status`, `thread.archived`
   """
   use Phoenix.Channel
 
-  alias Workbench.Threads
+  alias Workbench.{Projects, Threads}
+  alias Workbench.Projects.Project
   alias Workbench.Threads.Thread
   alias WorkbenchWeb.ChannelHelpers, as: H
 
   @impl true
   def join("lobby", _params, socket) do
     Threads.subscribe_lobby()
-    {:ok, %{projects: [], threads: Enum.map(Threads.list(), &Thread.to_json/1)}, socket}
+
+    {:ok,
+     %{
+       projects: Enum.map(Projects.list(), &Project.to_json/1),
+       threads: Enum.map(Threads.list(), &Thread.to_json/1)
+     }, socket}
   end
 
   @impl true
+  def handle_in("project.add", %{"path" => path}, socket) when is_binary(path) and path != "" do
+    case Projects.add(path) do
+      {:ok, project} ->
+        Threads.broadcast_lobby({:project_upserted, project})
+        {:reply, {:ok, %{project: Project.to_json(project)}}, socket}
+
+      {:error, %Ecto.Changeset{} = cs} ->
+        {:reply, {:error, %{reason: H.errors(cs)}}, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, %{reason: H.reason(reason)}}, socket}
+    end
+  end
+
+  def handle_in("project.branches", %{"project_id" => id}, socket) do
+    case Projects.get(id) do
+      nil -> {:reply, {:error, %{reason: "project not found"}}, socket}
+      p -> {:reply, {:ok, %{branches: Projects.branches(p), default: p.default_branch}}, socket}
+    end
+  end
+
   def handle_in("thread.create", params, socket) do
-    attrs = %{
-      provider: params["provider"] || "claude",
-      title: params["title"],
-      worktree_path: params["cwd"] && Path.expand(params["cwd"]),
-      mode: params["mode"] || "default",
-      model: params["model"]
-    }
+    attrs =
+      %{
+        provider: params["provider"] || "claude",
+        title: blank(params["title"]),
+        mode: params["mode"] || "default",
+        model: blank(params["model"])
+      }
+      |> then(fn a ->
+        case blank(params["project_id"]) do
+          nil ->
+            Map.put(a, :worktree_path, params["cwd"] && Path.expand(params["cwd"]))
+
+          project_id ->
+            Map.merge(a, %{
+              project_id: project_id,
+              base_ref: blank(params["base_ref"]),
+              isolate: params["isolate"] != false
+            })
+        end
+      end)
 
     case Threads.create(attrs) do
       {:ok, thread} -> {:reply, {:ok, %{thread: Thread.to_json(thread)}}, socket}
-      {:error, changeset} -> {:reply, {:error, %{reason: H.errors(changeset)}}, socket}
+      {:error, %Ecto.Changeset{} = cs} -> {:reply, {:error, %{reason: H.errors(cs)}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
     end
+  end
+
+  def handle_in(event, _params, socket) do
+    {:reply, {:error, %{reason: "unknown or malformed message: #{event}"}}, socket}
   end
 
   @impl true
@@ -41,4 +92,17 @@ defmodule WorkbenchWeb.LobbyChannel do
     push(socket, "thread.status", %{id: id, status: status})
     {:noreply, socket}
   end
+
+  def handle_info({:thread_archived, id}, socket) do
+    push(socket, "thread.archived", %{id: id})
+    {:noreply, socket}
+  end
+
+  def handle_info({:project_upserted, project}, socket) do
+    push(socket, "project.upserted", Project.to_json(project))
+    {:noreply, socket}
+  end
+
+  defp blank(v) when v in [nil, ""], do: nil
+  defp blank(v), do: v
 end

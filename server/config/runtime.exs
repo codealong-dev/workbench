@@ -1,6 +1,11 @@
 import Config
 
-home = System.get_env("WB_HOME") || Path.expand("~/.workbench")
+home =
+  System.get_env("WB_HOME") ||
+    if(config_env() == :test,
+      do: Path.join(System.tmp_dir!(), "workbench-test"),
+      else: Path.expand("~/.workbench")
+    )
 
 config :workbench, home: home
 

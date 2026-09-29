@@ -43,6 +43,29 @@ defmodule Workbench.Provider.Proc do
     :exec.send(os_pid, Jason.encode!(map) <> "\n")
   end
 
+  @doc """
+  Run a shell command to completion (or `timeout` ms, then kill its group).
+  Returns `{:ok, output}` or `{:error, output}`. The caller must trap exits.
+  """
+  def run_sync(cmd, cwd, env, timeout) do
+    case start(["sh", "-c", cmd], cwd, env) do
+      {:ok, %{io: io, pid: pid}} -> collect(io, pid, "", System.monotonic_time(:millisecond) + timeout)
+      {:error, reason} -> {:error, inspect(reason)}
+    end
+  end
+
+  defp collect(io, pid, acc, deadline) do
+    receive do
+      {s, ^io, data} when s in [:stdout, :stderr] -> collect(io, pid, acc <> data, deadline)
+      {:EXIT, ^pid, :normal} -> {:ok, acc}
+      {:EXIT, ^pid, reason} -> {:error, acc <> "(#{describe_exit(reason)})"}
+    after
+      max(deadline - System.monotonic_time(:millisecond), 0) ->
+        stop(io)
+        {:error, acc <> "(timed out)"}
+    end
+  end
+
   @doc "Human-readable exit reason."
   def describe_exit({:exit_status, status}) do
     case :exec.status(status) do

@@ -38,6 +38,32 @@ defmodule WorkbenchWeb.ChannelsTest do
     assert Threads.get(id).mode == "plan"
   end
 
+  test "projects: add, branches, create a worktree thread, archive it", %{dir: dir} do
+    repo = git_repo(dir)
+    git!(repo, ["branch", "feature-x"])
+    {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
+    {:ok, %{projects: []}, lobby} = subscribe_and_join(socket, "lobby", %{})
+
+    ref = push(lobby, "project.add", %{"path" => repo})
+    assert_reply ref, :ok, %{project: %{id: pid, name: "repo", default_branch: "main"}}
+    assert_push "project.upserted", %{id: ^pid}
+
+    ref = push(lobby, "project.add", %{"path" => "/nope"})
+    assert_reply ref, :error, %{reason: _}
+
+    ref = push(lobby, "project.branches", %{"project_id" => pid})
+    assert_reply ref, :ok, %{branches: branches, default: "main"}
+    assert Enum.sort(branches) == ["feature-x", "main"]
+
+    ref = push(lobby, "thread.create", %{"project_id" => pid, "provider" => "fake", "title" => "From feature", "base_ref" => "feature-x"})
+    assert_reply ref, :ok, %{thread: %{id: tid, branch: "wb/from-feature-" <> _, base_ref: "feature-x", project_id: ^pid}}
+
+    {:ok, _snap, chan} = subscribe_and_join(socket, "thread:" <> tid, %{})
+    ref = push(chan, "archive", %{})
+    assert_reply ref, :ok
+    assert_push "thread.archived", %{id: ^tid}, 5_000
+  end
+
   test "joining an unknown thread fails" do
     {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
     assert {:error, %{reason: "not_found"}} = subscribe_and_join(socket, "thread:" <> Ecto.UUID.generate(), %{})
