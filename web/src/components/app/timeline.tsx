@@ -8,6 +8,8 @@ import { Markdown } from "./markdown";
 import { ToolCall } from "./tool-call";
 import { ApprovalCard } from "./approval-card";
 import { QuestionCard } from "./question-card";
+import { QuoteSelection } from "./quote-selection";
+import { splitQuotes } from "@/lib/quotes";
 
 function Reasoning({ text, live }: { text: string; live: boolean }) {
   const [open, setOpen] = useState(false);
@@ -19,7 +21,11 @@ function Reasoning({ text, live }: { text: string; live: boolean }) {
         <Brain className="size-3.5" />
         <span className={cn(live && "shimmer-text")}>{live ? "Thinking" : "Thought"}</span>
       </button>
-      {show && <div className="mt-1 ml-7 border-l border-border pl-3 whitespace-pre-wrap italic">{text}</div>}
+      {show && (
+        <div data-quotable className="mt-1 ml-7 border-l border-border pl-3 whitespace-pre-wrap italic">
+          {text}
+        </div>
+      )}
     </div>
   );
 }
@@ -46,15 +52,22 @@ const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
 
 function Row({ item, live }: { item: Item | LiveItem; live: boolean }) {
   switch (item.kind) {
-    case "user_message":
+    case "user_message": {
+      const { quotes, body } = splitQuotes(item.text);
       return (
         <ChatMessage from="user">
-          <div className="whitespace-pre-wrap">{item.text}</div>
+          {quotes.map((q, i) => (
+            <div key={i} className="mb-1.5 line-clamp-4 border-l-2 border-foreground/20 pl-2 text-[13px] whitespace-pre-wrap text-muted-foreground">
+              {q}
+            </div>
+          ))}
+          <div className="whitespace-pre-wrap">{body}</div>
         </ChatMessage>
       );
+    }
     case "assistant_message":
       return (
-        <ChatMessage from="assistant" className="max-w-full">
+        <ChatMessage from="assistant" className="max-w-full" data-quotable>
           <Markdown text={item.text} streaming={live} />
         </ChatMessage>
       );
@@ -81,8 +94,11 @@ export function Timeline(props: {
   status: Status;
   onDecide: (requestId: string, d: Decision, answers?: Answers) => Promise<void>;
   agent: string;
+  /** reply to a selected part of an answer */
+  onQuote?: (text: string) => void;
 }) {
-  const { items, live, pending, status, onDecide, agent } = props;
+  const { items, live, pending, status, onDecide, agent, onQuote } = props;
+  const frame = useRef<HTMLDivElement>(null);
   // a question's own tool row would repeat the card while it is open
   const asking = new Set(pending.filter((a) => a.tool === "AskUserQuestion").map((a) => a.request_id));
   const scroller = useRef<HTMLDivElement>(null);
@@ -104,32 +120,35 @@ export function Timeline(props: {
   const waiting = status === "running" && live.length === 0;
 
   return (
-    <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto flex max-w-3xl flex-col gap-3 px-6 py-6">
-        {items.length === 0 && live.length === 0 && status === "idle" && (
-          <div className="py-24 text-center text-[13px] text-muted-foreground">Send a message to start.</div>
-        )}
-        {items
-          .filter((it) => !asking.has(it.id))
-          .map((it) => (
-            <Row key={it.id} item={it} live={false} />
+    <div ref={frame} className="relative flex min-h-0 flex-1 flex-col">
+      {onQuote && <QuoteSelection frame={frame} scroller={scroller} onQuote={onQuote} />}
+      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex max-w-3xl flex-col gap-3 px-6 py-6">
+          {items.length === 0 && live.length === 0 && status === "idle" && (
+            <div className="py-24 text-center text-[13px] text-muted-foreground">Send a message to start.</div>
+          )}
+          {items
+            .filter((it) => !asking.has(it.id))
+            .map((it) => (
+              <Row key={it.id} item={it} live={false} />
+            ))}
+          {live.map((it) => (
+            <Row key={it.id} item={it} live />
           ))}
-        {live.map((it) => (
-          <Row key={it.id} item={it} live />
-        ))}
-        {pending.map((a) =>
-          a.tool === "AskUserQuestion" ? (
-            <QuestionCard
-              key={a.request_id}
-              approval={a}
-              agent={agent}
-              onAnswer={(answers) => (answers ? onDecide(a.request_id, "answer", answers) : onDecide(a.request_id, "deny"))}
-            />
-          ) : (
-            <ApprovalCard key={a.request_id} approval={a} onDecide={(d) => onDecide(a.request_id, d)} />
-          ),
-        )}
-        {waiting && <ThinkingIndicator className="self-start px-0" />}
+          {pending.map((a) =>
+            a.tool === "AskUserQuestion" ? (
+              <QuestionCard
+                key={a.request_id}
+                approval={a}
+                agent={agent}
+                onAnswer={(answers) => (answers ? onDecide(a.request_id, "answer", answers) : onDecide(a.request_id, "deny"))}
+              />
+            ) : (
+              <ApprovalCard key={a.request_id} approval={a} onDecide={(d) => onDecide(a.request_id, d)} />
+            ),
+          )}
+          {waiting && <ThinkingIndicator className="self-start px-0" />}
+        </div>
       </div>
     </div>
   );

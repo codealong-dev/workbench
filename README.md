@@ -49,6 +49,8 @@ Add a project (any local git repo), then press **N** or **+** for a new thread. 
 
 Archiving a thread stops the agent, runs teardown and deletes the worktree; its sessions are archived with it. The branch is kept. Archiving a session only stops and hides it.
 
+**Reply to a part of an answer.** Select text in an agent's answer (or its thinking) and click **Reply**: the selection is attached above the message box, and goes out as a quote in front of what you type. It's plain markdown in the message, so it works the same with any agent.
+
 **Questions.** When an agent asks you something (Claude's AskUserQuestion, Codex's request_user_input), the thread shows a card with the options, multi-select where the agent allows it, and a free-text "Other". **Skip** tells the agent to go on without an answer. What you picked stays in the timeline.
 
 **Terminals.** Terminal tabs run real shells (your login shell on a PTY) in the thread's worktree. They keep running when you close the tab or reload (the last 256 KB of output is replayed), and archiving the thread closes them. ``Ctrl+` `` goes to the next terminal tab (opening one if there's none); ``Ctrl+Shift+` `` opens a new one.
