@@ -50,6 +50,11 @@
   :root:not(.light) .wb-code .shiki, :root:not(.light) .wb-code .shiki span { color: var(--shiki-dark); }
 }
 
+.wb-diff {
+  --diffs-font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --diffs-header-font-family: var(--font-sans);
+}
+
 .wb-tool-pre {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;

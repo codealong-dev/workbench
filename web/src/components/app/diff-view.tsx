@@ -27,7 +27,7 @@ const DiffBlock = memo(function DiffBlock(props: { file: FileDiffMetadata; diffS
       fileDiff={props.file}
       options={{
         diffStyle: props.diffStyle,
-        theme: { light: "github-light", dark: "github-dark" },
+        theme: { light: "light-plus", dark: "dark-plus" },
         themeType,
         overflow: "wrap",
         lineDiffType: "word",
