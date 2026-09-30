@@ -102,6 +102,7 @@ export function Timeline(props: {
   // a question's own tool row would repeat the card while it is open
   const asking = new Set(pending.filter((a) => a.tool === "AskUserQuestion").map((a) => a.request_id));
   const scroller = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
 
   // Stick to the bottom while the user hasn't scrolled up.
@@ -111,10 +112,31 @@ export function Timeline(props: {
   });
   useEffect(() => {
     const el = scroller.current;
-    if (!el) return;
-    const onScroll = () => (pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+    const content = contentRef.current;
+    if (!el || !content) return;
+    // Only a scroll the user caused may unpin: our own scroll-to-bottom fires a scroll event
+    // after the content has grown again, which would otherwise look like scrolling up.
+    let lastInput = 0;
+    const onInput = () => (lastInput = Date.now());
+    const onScroll = () => {
+      const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      if (near) pinned.current = true;
+      else if (Date.now() - lastInput < 300) pinned.current = false;
+    };
+    const inputs = ["wheel", "touchmove", "pointerdown", "keydown"] as const;
+    inputs.forEach((e) => el.addEventListener(e, onInput, { passive: true }));
     el.addEventListener("scroll", onScroll);
-    return () => el.removeEventListener("scroll", onScroll);
+    // content can grow without a re-render (streaming markdown, expanding tools, tab re-shown)
+    const ro = new ResizeObserver(() => {
+      if (pinned.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(content);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      inputs.forEach((e) => el.removeEventListener(e, onInput));
+      ro.disconnect();
+    };
   }, []);
 
   const waiting = status === "running" && live.length === 0;
@@ -123,7 +145,7 @@ export function Timeline(props: {
     <div ref={frame} className="relative flex min-h-0 flex-1 flex-col">
       {onQuote && <QuoteSelection frame={frame} scroller={scroller} onQuote={onQuote} />}
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-3xl flex-col gap-3 px-6 py-6">
+        <div ref={contentRef} className="mx-auto flex max-w-3xl flex-col gap-3 px-6 py-6">
           {items.length === 0 && live.length === 0 && status === "idle" && (
             <div className="py-24 text-center text-[13px] text-muted-foreground">Send a message to start.</div>
           )}

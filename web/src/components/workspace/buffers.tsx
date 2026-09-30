@@ -169,14 +169,16 @@ function TerminalPanel({ params, api }: IDockviewPanelProps<Buffer & { kind: "te
 function ChangesPanel() {
   const ws = useWorkspace();
   return (
-    <DiffView
-      diff={ws.diff}
-      error={ws.diffError}
-      focus={ws.focus}
-      onActive={ws.setActiveChange}
-      onOpenFile={(p) => void ws.openIn(preferredEditor(), p)}
-      loadFile={ws.loadPatch}
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      <DiffView
+        diff={ws.diff}
+        error={ws.diffError}
+        focus={ws.focus}
+        onActive={ws.setActiveChange}
+        onOpenFile={(p) => void ws.openIn(preferredEditor(), p)}
+        loadFile={ws.loadPatch}
+      />
+    </div>
   );
 }
 
