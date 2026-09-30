@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronRight, CircleAlert, LoaderCircle, SquareTerminal, FileText, FilePen, Search, Globe, Wrench } from "lucide-react";
+import { ChevronRight, CircleAlert, LoaderCircle, SquareTerminal, FileText, FilePen, Search, Globe, ShieldCheck, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ToolItem } from "@/contracts";
 
@@ -9,6 +9,8 @@ const str = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : JSON.s
 
 function icon(name: string) {
   if (name === "Bash") return SquareTerminal;
+  if (name === "Patch") return FilePen;
+  if (name === "Permissions") return ShieldCheck;
   if (name === "Read") return FileText;
   if (name === "Edit" || name === "Write" || name === "MultiEdit" || name === "NotebookEdit") return FilePen;
   if (name === "Grep" || name === "Glob") return Search;
@@ -17,9 +19,55 @@ function icon(name: string) {
 }
 
 /** One-line summary of a call, by tool name. */
+/** A file change from Codex: `kind.type` is add | delete | update; `diff` is a unified diff (or the new content). */
+export type PatchChange = { path: string; kind?: { type?: string; move_path?: string | null }; diff?: string };
+
+export function patchChanges(input: unknown): PatchChange[] {
+  const changes = (input as { changes?: unknown } | null)?.changes;
+  return Array.isArray(changes) ? (changes as PatchChange[]) : [];
+}
+
+/** Unified diff text with +/- lines coloured (Codex patches). */
+export function DiffText({ changes }: { changes: PatchChange[] }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      {changes.map((c, n) => (
+        <pre key={n} className="wb-tool-pre">
+          <div className="mb-1 font-semibold text-foreground">
+            {c.kind?.type === "add" ? "new " : c.kind?.type === "delete" ? "deleted " : ""}
+            {c.path}
+            {c.kind?.move_path ? ` → ${c.kind.move_path}` : ""}
+          </div>
+          {(c.diff ?? "").split("\n").map((l, i) => (
+            <div
+              key={i}
+              className={cn(
+                l.startsWith("+") && !l.startsWith("+++") && "text-green-700 dark:text-green-400",
+                l.startsWith("-") && !l.startsWith("---") && "text-red-600 dark:text-red-400",
+                l.startsWith("@@") && "text-muted-foreground",
+              )}
+            >
+              {l || " "}
+            </div>
+          ))}
+        </pre>
+      ))}
+    </div>
+  );
+}
+
 export function toolSummary(name: string, input: unknown): string {
   const i = (input ?? {}) as Input;
   switch (name) {
+    case "Patch":
+      return patchChanges(input)
+        .map((c) => c.path)
+        .join(", ");
+    case "Permissions":
+      return Object.entries(i)
+        .filter(([, v]) => v != null)
+        .map(([k]) => k)
+        .join(", ");
     case "Bash":
       return str(i.command);
     case "Read":
@@ -45,6 +93,15 @@ export function toolSummary(name: string, input: unknown): string {
 
 function Body({ item }: { item: ToolItem }) {
   const i = (item.input ?? {}) as Input;
+
+  if (item.name === "Patch") {
+    return (
+      <>
+        <DiffText changes={patchChanges(item.input)} />
+        {item.is_error && item.output && <pre className="wb-tool-pre text-destructive">{item.output}</pre>}
+      </>
+    );
+  }
 
   if ((item.name === "Edit" || item.name === "MultiEdit") && "old_string" in i) {
     return (

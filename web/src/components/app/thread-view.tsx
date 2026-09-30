@@ -17,6 +17,7 @@ import { ChangesPanel, Counts } from "./changes-panel";
 import { OpenMenu, preferredEditor } from "./open-menu";
 
 const CHANGES_KEY = "wb.changesOpen";
+const AGENT_NAMES: Record<string, string> = { claude: "Claude", codex: "Codex", fake: "the fake agent" };
 
 function ArchiveButton({ thread, onArchive }: { thread: Thread; onArchive: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
@@ -204,7 +205,7 @@ export function ThreadView({ id }: { id: string }) {
               queue={queue}
               onQueueChange={setQueue}
               history={history}
-              placeholder={busy ? "Queue a follow-up…" : "Ask Claude to do something…"}
+              placeholder={busy ? "Queue a follow-up…" : `Ask ${AGENT_NAMES[thread.provider] ?? "the agent"} to do something…`}
               maxRows={12}
             />
           </div>

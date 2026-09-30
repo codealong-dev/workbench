@@ -31,6 +31,7 @@ function TurnFooter({ item }: { item: TurnItem }) {
     u && `${fmt(tokens)} in · ${fmt(u.output_tokens)} out`,
     item.cost_usd != null && item.cost_usd > 0 && `$${item.cost_usd.toFixed(3)}`,
   ].filter(Boolean);
+  if (parts.length === 0) return <div className="my-1 h-px w-full bg-border" />;
   return (
     <div className={cn("flex w-full items-center gap-3 py-1 text-[11px] text-muted-foreground", item.status === "error" && "text-destructive")}>
       <div className="h-px flex-1 bg-border" />

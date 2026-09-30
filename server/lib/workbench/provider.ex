@@ -44,6 +44,7 @@ defmodule Workbench.Provider do
 
   @doc "Adapter module for a thread's provider name."
   def module("claude"), do: Workbench.Provider.Claude
+  def module("codex"), do: Workbench.Provider.Codex
   def module("fake"), do: Workbench.Provider.Fake
   def module(other), do: raise(ArgumentError, "unsupported provider #{inspect(other)}")
 

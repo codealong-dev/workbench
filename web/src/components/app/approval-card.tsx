@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ShieldQuestion } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Approval, Decision } from "@/contracts";
-import { toolSummary } from "./tool-call";
+import { DiffText, patchChanges, toolSummary } from "./tool-call";
 
 export function ApprovalCard({ approval, onDecide }: { approval: Approval; onDecide: (d: Decision) => Promise<void> }) {
   const [busy, setBusy] = useState<Decision | null>(null);
@@ -19,7 +19,13 @@ export function ApprovalCard({ approval, onDecide }: { approval: Approval; onDec
         Allow {approval.tool}?
       </div>
       {approval.reason && <div className="mt-1 text-[12px] text-muted-foreground">{approval.reason}</div>}
-      <pre className="wb-tool-pre mt-2">{toolSummary(approval.tool, approval.input) || JSON.stringify(approval.input, null, 2)}</pre>
+      {approval.tool === "Patch" && patchChanges(approval.input).length > 0 ? (
+        <div className="mt-2">
+          <DiffText changes={patchChanges(approval.input)} />
+        </div>
+      ) : (
+        <pre className="wb-tool-pre mt-2">{toolSummary(approval.tool, approval.input) || JSON.stringify(approval.input, null, 2)}</pre>
+      )}
       <div className="mt-3 flex gap-2">
         <Button size="compact" variant="primary" loading={busy === "allow"} onClick={() => decide("allow")}>
           Allow

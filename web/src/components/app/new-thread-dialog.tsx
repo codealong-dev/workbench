@@ -117,7 +117,8 @@ export function NewThreadDialog(props: {
                   <SelectTrigger />
                   <SelectContent>
                     <SelectItem index={0} value="claude">Claude Code</SelectItem>
-                    <SelectItem index={1} value="fake">Fake (no agent)</SelectItem>
+                    <SelectItem index={1} value="codex">Codex</SelectItem>
+                    <SelectItem index={2} value="fake">Fake (no agent)</SelectItem>
                   </SelectContent>
                 </Select>
               </Field>

@@ -18,13 +18,15 @@ A local-first workbench for running coding agents in parallel. A Phoenix app run
 | M6 macOS app | Done: login-shell PATH, `make install` (release + launchd agent at login), Dock web app |
 | M7 remote machine | Done: `WB_BIND`/`WB_ORIGINS`, one-time login link for other machines, SSH "Open in", Push + Open PR. See [docs/remote.md](docs/remote.md) |
 | M8 several machines | Next: one UI, threads on several nodes over Tailscale |
-| M9 Codex, M10 polish | After M8 |
+| M9 Codex | Done: `codex app-server` over JSON-RPC from Elixir; streaming, approvals (commands, file patches, permissions), interrupt, resume, modes |
+| M10 polish | Next |
 
 ## Requirements
 
 - Erlang/OTP 27+ and Elixir 1.17+ (`.tool-versions` pins what it was built with; erlexec needs OTP 27)
 - Node 22+
 - A working Claude Code login on this machine (`claude` in a terminal works)
+- For Codex threads: the Codex CLI (`npm i -g @openai/codex`) and `codex login`
 
 ## Run
 
@@ -93,6 +95,7 @@ spikes/    M0 checks
 | `WB_HOME` | Data dir (default `~/.workbench`) |
 | `WB_FAKE_SCRIPT=fixtures/x.jsonl` | Fake provider replays a recording instead of generating replies |
 | `WB_CLAUDE_BIN=$(which claude)` | Use your installed Claude Code instead of the SDK's pinned binary |
+| `WB_CODEX_BIN` | Path to the `codex` binary (default: `codex` on PATH) |
 | `WB_SIDECAR` | Path to an alternative sidecar bundle |
 
 ## Tests
