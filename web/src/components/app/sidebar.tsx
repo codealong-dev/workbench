@@ -129,10 +129,19 @@ const actionBtn =
 
 // ── the trigger that lives in the main area ─────────────────────────────────
 
-/** Sidebar toggle for the inset's header. Hidden while the sidebar peeks. */
+/** Sidebar toggle for the inset's header: click to open or close. Hidden while the sidebar peeks. */
 export function InsetTrigger({ className }: { className?: string }) {
   const { isPeeking } = useSidebar();
-  return <SidebarTrigger className={cn("transition-opacity delay-200 duration-160", isPeeking ? "opacity-0" : "opacity-100", className)} />;
+  return (
+    <SidebarTrigger
+      className={cn("transition-opacity delay-200 duration-160", isPeeking ? "opacity-0" : "opacity-100", className)}
+      // FF's collapsed trigger also peeks on hover, which slides the overlay
+      // over the button before it can be clicked. Here it only toggles; the
+      // left-edge strip still peeks.
+      onPointerEnter={() => {}}
+      onPointerLeave={() => {}}
+    />
+  );
 }
 
 // ── rows ────────────────────────────────────────────────────────────────────
