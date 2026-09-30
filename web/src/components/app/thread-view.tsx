@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Archive, Cpu, FolderGit2, GitBranch, GitCompareArrows, PanelRight } from "lucide-react";
+import { Archive, GitBranch, GitCompareArrows, PanelRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InputMessage, type QueuedMessage } from "@/components/ui/input-message";
 import { push, useThreadChannel } from "@/hooks/use-channels";
@@ -75,6 +75,7 @@ export function ThreadView({ id }: { id: string }) {
   const [tabs, setTabs] = useState<ViewerTab[]>([]);
   const [activeTab, setActiveTab] = useState<string>("diff");
   const [focus, setFocus] = useState<{ path: string; n: number } | null>(null);
+  const [activeChange, setActiveChange] = useState<string | null>(null); // the file the diff is scrolled to
   const openTab = (tab: ViewerTab) => {
     const key = tabKey(tab);
     setTabs((ts) => (ts.some((t) => tabKey(t) === key) ? ts : tab.kind === "diff" ? [tab, ...ts] : [...ts, tab]));
@@ -157,32 +158,19 @@ export function ThreadView({ id }: { id: string }) {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex items-center gap-3 py-1.5 pr-1.5 pl-1">
+      <header className="flex h-9 items-center gap-2 pr-1.5 pl-1">
         <InsetTrigger />
         <StatusDot status={status} />
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-baseline gap-2">
-            <span className="truncate text-[14px] font-medium">{threadLabel(thread)}</span>
-            {root && <span className="truncate text-[12px] text-muted-foreground">in {threadLabel(root)}</span>}
-          </div>
-          <div className="flex items-center gap-3 truncate text-[12px] text-muted-foreground">
-            {thread.branch && (
-              <span className="flex items-center gap-1 font-mono" title={thread.base_ref ? `from ${thread.base_ref}` : undefined}>
-                <GitBranch className="size-3" />
-                {thread.branch}
-                {thread.base_ref && <span className="opacity-60">← {thread.base_ref}</span>}
-              </span>
-            )}
-            <span className="flex min-w-0 items-center gap-1" title={thread.worktree_path}>
-              <FolderGit2 className="size-3 shrink-0" />
-              <span className="truncate font-mono">{thread.worktree_path.replace(/^\/(Users|home)\/[^/]+/, "~")}</span>
-            </span>
-            <span className="flex shrink-0 items-center gap-1">
-              <Cpu className="size-3" />
-              {ts.model ?? thread.provider}
-            </span>
-          </div>
-        </div>
+        <span className="truncate text-[13px] font-medium" title={thread.worktree_path}>
+          {threadLabel(thread)}
+        </span>
+        {root && <span className="hidden truncate text-[12px] text-muted-foreground md:inline">in {threadLabel(root)}</span>}
+        {thread.branch && (
+          <span className="flex min-w-0 items-center gap-1 truncate font-mono text-[12px] text-muted-foreground" title={thread.base_ref ? `${thread.branch} from ${thread.base_ref}` : thread.branch}>
+            <GitBranch className="size-3 shrink-0" />
+            <span className="truncate">{thread.branch}</span>
+          </span>
+        )}
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           <Tooltip content={diffShown ? "Hide changes" : "Show changes against the base branch"} side="bottom">
             <Button
@@ -248,6 +236,7 @@ export function ThreadView({ id }: { id: string }) {
             diff={diff}
             diffError={diffError}
             focus={focus}
+            onActiveChange={setActiveChange}
             loadPatch={(path) => fetchFilePatch(channel.current, path)}
             onOpenInEditor={(path) => void openIn(preferredEditor(), path)}
           />
@@ -263,7 +252,7 @@ export function ThreadView({ id }: { id: string }) {
             diffLoading={diffLoading}
             onRefreshDiff={() => void refreshDiff()}
             openFile={viewerOpen && activeTab.startsWith("f:") ? activeTab.slice(2) : null}
-            focusedChange={diffShown ? (focus?.path ?? null) : null}
+            focusedChange={diffShown ? (activeChange ?? focus?.path ?? null) : null}
             onOpenFile={(path) => openTab({ kind: "file", path })}
             onOpenChange={(path) => {
               openTab({ kind: "diff" });
