@@ -20,6 +20,7 @@ import { Viewer, tabKey, type ViewerTab } from "./viewer";
 import { isAppShortcut } from "./terminal-view";
 import { OpenMenu, preferredEditor } from "./open-menu";
 import { ArchiveDialog } from "./archive-dialog";
+import { QuickOpen } from "./quick-open";
 import { InsetTrigger, threadLabel } from "./sidebar";
 
 const PANEL_KEY = "wb.panel";
@@ -71,6 +72,19 @@ export function ThreadView({ id }: { id: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ⌘P / Ctrl+P: go to file
+  const [quickOpen, setQuickOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        setQuickOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // middle pane: the diff and opened files, as tabs
   const [tabs, setTabs] = useState<ViewerTab[]>([]);
   const [activeTab, setActiveTab] = useState<string>("diff");
@@ -94,7 +108,7 @@ export function ThreadView({ id }: { id: string }) {
 
   const threadStatus = useStore((s) => s.byId[id]?.status);
   const { diff, error: diffError, loading: diffLoading, refresh: refreshDiff } = useDiff(channel, threadStatus, diffShown);
-  const files = useFiles(channel, threadStatus, panel === "files");
+  const files = useFiles(channel, threadStatus, panel === "files" || quickOpen);
 
   // open files re-read when the agent finishes a turn
   const [version, setVersion] = useState(0);
@@ -103,6 +117,10 @@ export function ThreadView({ id }: { id: string }) {
     if (prevStatus.current && prevStatus.current !== "idle" && threadStatus === "idle") setVersion((v) => v + 1);
     prevStatus.current = threadStatus;
   }, [threadStatus]);
+
+  // open files, the one in view first
+  const openPaths = tabs.flatMap((t) => (t.kind === "file" ? [t.path] : []));
+  const recentFiles = [...openPaths.filter((p) => "f:" + p === activeTab), ...openPaths.filter((p) => "f:" + p !== activeTab).reverse()];
 
   const host = useStore((s) => s.host);
   const worktree = useStore((s) => s.byId[id]?.thread.worktree_path);
@@ -269,6 +287,8 @@ export function ThreadView({ id }: { id: string }) {
           />
         )}
       </div>
+
+      <QuickOpen open={quickOpen} onOpenChange={setQuickOpen} files={files} recent={recentFiles} onPick={(path) => openTab({ kind: "file", path })} />
     </div>
   );
 }
