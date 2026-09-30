@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar, InsetTrigger } from "@/components/app/sidebar";
 import { PANEL } from "@/components/app/panel";
 import { cn } from "@/lib/utils";
-import { ThreadView } from "@/components/app/thread-view";
+import { WorkspaceView } from "@/components/workspace/workspace";
 import { NewThreadDialog } from "@/components/app/new-thread-dialog";
 import { AddProjectDialog } from "@/components/app/add-project-dialog";
 import { useLobby } from "@/hooks/use-channels";
@@ -25,10 +25,14 @@ export default function App() {
   const [addProject, setAddProject] = useState(false);
   const threads = useStore((s) => s.threads);
 
-  const select = (id: string | null) => {
-    location.hash = id ? `/t/${id}` : "";
+  const select = useCallback((id: string | null) => {
+    const hash = id ? `#/t/${id}` : "";
+    if (location.hash !== hash) location.hash = hash;
     setSelected(id);
-  };
+  }, []);
+  const current = threads.find((t) => t.id === selected);
+  // a worktree is one workspace, whichever of its sessions is picked
+  const rootId = current ? (current.parent_id ?? current.id) : null;
 
   useEffect(() => {
     const onHash = () => setSelected(fromHash());
@@ -67,8 +71,10 @@ export default function App() {
         />
         {/* no card of its own: the thread's panes are the cards (see panel.ts) */}
         <SidebarInset className="overflow-hidden peer-data-[variant=inset]:m-1 peer-data-[variant=inset]:peer-data-[side=left]:ml-0 peer-data-[variant=inset]:peer-data-[state=collapsed]:peer-data-[side=left]:ml-1 peer-data-[variant=inset]:rounded-none peer-data-[variant=inset]:bg-transparent peer-data-[variant=inset]:shadow-none">
-          {selected ? (
-            <ThreadView key={selected} id={selected} />
+          {selected && rootId ? (
+            <WorkspaceView key={rootId} rootId={rootId} selectedId={selected} connected={connected} onSelect={select} />
+          ) : selected && !connected ? (
+            <div className="flex-1" />
           ) : (
             <div className="flex flex-1 flex-col">
               <header className="flex h-10 shrink-0 items-center px-1">

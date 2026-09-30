@@ -118,6 +118,15 @@ defmodule WorkbenchWeb.ThreadChannel do
     {:reply, :ok, socket}
   end
 
+  # The workspace's tabs and splits (stored on its root thread).
+  def handle_in("layout.get", _params, socket) do
+    {:reply, {:ok, %{layout: Workbench.Layouts.get(socket.assigns.terminal_owner)}}, socket}
+  end
+
+  def handle_in("layout.put", %{"layout" => layout}, socket) do
+    result(Workbench.Layouts.put(socket.assigns.terminal_owner, layout), socket)
+  end
+
   def handle_in("open_editor", %{"editor" => editor} = params, socket) do
     case Threads.get(socket.assigns.thread_id) do
       nil -> {:reply, {:error, %{reason: "not_found"}}, socket}

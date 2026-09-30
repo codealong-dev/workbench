@@ -68,3 +68,57 @@
   background: var(--surface-2);
   box-shadow: var(--shadow-1);
 }
+
+/* ── Workspace dock (dockview) in FF tokens: groups are Codealong-style cards ── */
+.dockview-theme-workbench {
+  --dv-group-view-background-color: var(--surface-2);
+  --dv-tabs-and-actions-container-background-color: var(--surface-2);
+  --dv-tabs-and-actions-container-height: 34px;
+  --dv-tabs-and-actions-container-font-size: 12px;
+  --dv-activegroup-visiblepanel-tab-background-color: transparent;
+  --dv-activegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-inactivegroup-visiblepanel-tab-background-color: transparent;
+  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-activegroup-visiblepanel-tab-color: var(--foreground);
+  --dv-activegroup-hiddenpanel-tab-color: var(--muted-foreground);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--foreground);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--muted-foreground);
+  --dv-tab-divider-color: transparent;
+  --dv-separator-border: transparent;
+  --dv-paneview-header-border-color: var(--border);
+  --dv-tabs-container-scrollbar-color: var(--border);
+  --dv-icon-hover-background-color: var(--hover);
+  --dv-drag-over-background-color: color-mix(in oklab, var(--focus-ring, #6b97ff) 16%, transparent);
+  --dv-drag-over-border-color: color-mix(in oklab, var(--focus-ring, #6b97ff) 60%, transparent);
+  --dv-drag-over-border: 1px solid var(--dv-drag-over-border-color);
+  --dv-edge-dock-indicator-color: var(--focus-ring, #6b97ff);
+  --dv-sash-color: transparent;
+  --dv-active-sash-color: color-mix(in oklab, var(--foreground) 25%, transparent);
+  --dv-active-sash-transition-delay: 0.15s;
+  --dv-border-radius: 8px;
+  --dv-tab-margin: 0;
+  --dv-overlay-z-index: 50;
+  --dv-context-menu-background-color: var(--surface-4);
+  --dv-context-menu-color: var(--foreground);
+  font-family: inherit;
+  color: var(--foreground);
+}
+.dockview-theme-workbench .dv-groupview {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.dockview-theme-workbench .dv-tabs-and-actions-container {
+  border-bottom: 1px solid var(--border);
+  padding: 0 4px;
+  gap: 2px;
+}
+.dockview-theme-workbench .dv-tabs-container { gap: 2px; align-items: center; }
+.dockview-theme-workbench .dv-tab {
+  padding: 4px 0;
+  height: 100%;
+  background: transparent !important;
+}
+.dockview-theme-workbench .dv-tab:focus-within,
+.dockview-theme-workbench .dv-tab:focus { outline: none; }
+.dockview-theme-workbench .dv-watermark { background: var(--surface-2); }

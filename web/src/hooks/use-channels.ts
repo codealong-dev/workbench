@@ -48,40 +48,81 @@ export function useLobby() {
 
 export const lobbyChannel = () => lobby;
 
-/** Joins thread:<id> while mounted. Rejoins (after a reconnect) re-hydrate from a fresh snapshot. */
+// One channel per thread, shared by everything that shows it (a chat tab,
+// the workspace around it): Phoenix allows one join per topic per socket.
+interface Shared {
+  ch: Channel;
+  refs: number;
+  error: string | null;
+  listeners: Set<() => void>;
+  leaveTimer: ReturnType<typeof setTimeout> | null;
+}
+const shared = new Map<string, Shared>();
+
+function acquire(id: string): Shared {
+  const existing = shared.get(id);
+  if (existing) {
+    existing.refs++;
+    if (existing.leaveTimer) clearTimeout(existing.leaveTimer);
+    existing.leaveTimer = null;
+    return existing;
+  }
+
+  const ch = socket.channel(`thread:${id}`, {});
+  const entry: Shared = { ch, refs: 1, error: null, listeners: new Set(), leaveTimer: null };
+  shared.set(id, entry);
+  const { hydrate, apply } = useStore.getState();
+
+  let provider: string | null = null;
+  const setUsage = (usage: PlanUsage | null) => {
+    if (provider) useStore.getState().setUsage(provider, usage);
+  };
+
+  ch.on("event", (p: ThreadEvent | { batch: ThreadEvent[] }) => apply("batch" in p ? p.batch : [p]));
+  ch.on("usage", ({ usage }: { usage: PlanUsage | null }) => setUsage(usage));
+  ch.join()
+    .receive("ok", (snap: Snapshot) => {
+      hydrate(snap);
+      provider = snap.thread.provider;
+      // what the server has now; asking to refresh may start the agent, and the fresh numbers arrive as a `usage` push
+      void push(ch, "usage", { refresh: true }).then((r) => {
+        const usage = r.ok ? (r.payload as { usage: PlanUsage | null }).usage : null;
+        if (usage) setUsage(usage);
+      });
+    })
+    .receive("error", (e: { reason?: string }) => {
+      entry.error = e?.reason ?? "join failed";
+      entry.listeners.forEach((l) => l());
+    });
+  return entry;
+}
+
+function release(id: string) {
+  const entry = shared.get(id);
+  if (!entry || --entry.refs > 0) return;
+  // a tab switch unmounts and remounts right away; don't rejoin for that
+  entry.leaveTimer = setTimeout(() => {
+    shared.delete(id);
+    entry.ch.leave();
+  }, 2000);
+}
+
+/** Joins thread:<id> while mounted (shared). Rejoins (after a reconnect) re-hydrate from a fresh snapshot. */
 export function useThreadChannel(id: string | null) {
   const ref = useRef<Channel | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
-    setJoinError(null);
-    const ch = socket.channel(`thread:${id}`, {});
-    ref.current = ch;
-    const { hydrate, apply } = useStore.getState();
-
-    let provider: string | null = null;
-    const setUsage = (usage: PlanUsage | null) => {
-      if (provider) useStore.getState().setUsage(provider, usage);
-    };
-
-    ch.on("event", (p: ThreadEvent | { batch: ThreadEvent[] }) => apply("batch" in p ? p.batch : [p]));
-    ch.on("usage", ({ usage }: { usage: PlanUsage | null }) => setUsage(usage));
-    ch.join()
-      .receive("ok", (snap: Snapshot) => {
-        hydrate(snap);
-        provider = snap.thread.provider;
-        // what the server has now; asking to refresh may start the agent, and the fresh numbers arrive as a `usage` push
-        void push(ch, "usage", { refresh: true }).then((r) => {
-          const usage = r.ok ? (r.payload as { usage: PlanUsage | null }).usage : null;
-          if (usage) setUsage(usage);
-        });
-      })
-      .receive("error", (e: { reason?: string }) => setJoinError(e?.reason ?? "join failed"));
-
+    const entry = acquire(id);
+    ref.current = entry.ch;
+    const onChange = () => setJoinError(entry.error);
+    entry.listeners.add(onChange);
+    onChange();
     return () => {
-      ch.leave();
+      entry.listeners.delete(onChange);
       ref.current = null;
+      release(id);
     };
   }, [id]);
 

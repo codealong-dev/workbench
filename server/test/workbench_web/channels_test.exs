@@ -112,6 +112,26 @@ defmodule WorkbenchWeb.ChannelsTest do
     assert_reply ref, :error, %{reason: "path is outside the worktree"}
   end
 
+  test "workspace layout: saved on the root thread, shared by its sessions", %{dir: dir} do
+    {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
+    {:ok, _, lobby} = subscribe_and_join(socket, "lobby", %{})
+    ref = push(lobby, "thread.create", %{"provider" => "fake", "cwd" => dir})
+    assert_reply ref, :ok, %{thread: %{id: root}}
+    {:ok, child} = Threads.create(%{parent_id: root, provider: "fake"})
+
+    {:ok, _, chan} = subscribe_and_join(socket, "thread:" <> root, %{})
+    ref = push(chan, "layout.get", %{})
+    assert_reply ref, :ok, %{layout: nil}
+    ref = push(chan, "layout.put", %{"layout" => %{"grid" => %{"root" => 1}, "panels" => %{}}})
+    assert_reply ref, :ok
+    ref = push(chan, "layout.put", %{"layout" => "nope"})
+    assert_reply ref, :error, %{reason: _}
+
+    {:ok, _, chan2} = subscribe_and_join(socket, "thread:" <> child.id, %{})
+    ref = push(chan2, "layout.get", %{})
+    assert_reply ref, :ok, %{layout: %{"grid" => %{"root" => 1}}}
+  end
+
   test "joining an unknown thread fails" do
     {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
     assert {:error, %{reason: "not_found"}} = subscribe_and_join(socket, "thread:" <> Ecto.UUID.generate(), %{})
