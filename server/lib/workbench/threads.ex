@@ -20,7 +20,13 @@ defmodule Workbench.Threads do
   def broadcast_lobby(msg), do: Phoenix.PubSub.broadcast(Workbench.PubSub, @lobby, msg)
 
   def list do
-    Repo.all(from t in Thread, where: is_nil(t.archived_at), order_by: [desc: t.inserted_at])
+    threads = Repo.all(from t in Thread, where: is_nil(t.archived_at), order_by: [desc: t.inserted_at])
+    counts = Workbench.Items.counts("user_message", Enum.map(threads, & &1.id))
+    Enum.map(threads, &%{&1 | message_count: Map.get(counts, &1.id, 0)})
+  end
+
+  def children(id) do
+    Repo.all(from t in Thread, where: t.parent_id == ^id and is_nil(t.archived_at), order_by: t.inserted_at)
   end
 
   def get(id), do: Repo.get(Thread, id)
@@ -33,8 +39,33 @@ defmodule Workbench.Threads do
   project's setup commands run in it. Pass `isolate: false` to run in the
   repo itself instead.
 
+  With `parent_id`, the thread is another session in the parent's worktree:
+  same project, path and branch, no new worktree and no setup. Sessions
+  nest one level; a child of a child hangs off the root.
+
   Without a project, `worktree_path` must be an existing directory (M1 mode).
   """
+  def create(%{parent_id: parent_id} = attrs) when is_binary(parent_id) do
+    case get(parent_id) do
+      %Thread{archived_at: nil} = parent ->
+        root = if parent.parent_id, do: get(parent.parent_id) || parent, else: parent
+
+        attrs
+        |> Map.drop([:isolate, :cwd])
+        |> Map.merge(%{
+          parent_id: root.id,
+          project_id: root.project_id,
+          worktree_path: root.worktree_path,
+          branch: root.branch,
+          base_ref: root.base_ref
+        })
+        |> insert()
+
+      _ ->
+        {:error, "parent thread not found"}
+    end
+  end
+
   def create(%{project_id: project_id} = attrs) when is_binary(project_id) do
     with {:ok, project} <- fetch_project(project_id),
          {:ok, place} <- place(project, attrs) do
@@ -98,9 +129,34 @@ defmodule Workbench.Threads do
 
   @doc """
   Archive: stop the agent, run the project's teardown commands, remove the
-  worktree (the branch is kept) and hide the thread.
+  worktree (the branch is kept) and hide the thread. A root session archives
+  its child sessions first; archiving a child only stops and hides it.
   """
   def archive(id), do: call(id, :archive)
+
+  @doc false
+  # Called by a root's server before it tears the worktree down.
+  def archive_children(id) do
+    for child <- children(id) do
+      case whereis(child.id) do
+        nil ->
+          Repo.update!(Ecto.Changeset.change(child, archived_at: DateTime.utc_now(), status: "idle"))
+          broadcast_lobby({:thread_archived, child.id})
+
+        pid ->
+          ref = Process.monitor(pid)
+          GenServer.call(pid, :archive, 15_000)
+
+          receive do
+            {:DOWN, ^ref, _, _, _} -> :ok
+          after
+            :timer.minutes(1) -> Process.demonitor(ref, [:flush])
+          end
+      end
+    end
+
+    :ok
+  end
 
   def send_message(id, text) when is_binary(text), do: call(id, {:send, text})
   def interrupt(id), do: call(id, :interrupt)

@@ -32,6 +32,7 @@ export function useLobby() {
     ch.on("project.upserted", (p: Project) => upsertProject(p));
     ch.on("thread.upserted", (t: Thread) => upsertThread(t));
     ch.on("thread.status", ({ id, status }) => setThreadStatus(id, status));
+    ch.on("thread.messages", ({ id, count }) => useStore.getState().setMessageCount(id, count));
     ch.on("thread.archived", ({ id }) => removeThread(id));
     ch.onClose(() => setConnected(false));
     ch.onError(() => setConnected(false));

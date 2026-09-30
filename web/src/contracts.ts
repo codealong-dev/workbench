@@ -16,6 +16,8 @@ export interface Project {
 export interface Thread {
   id: string;
   project_id: string | null;
+  /** Set on a child session: another agent in the parent's worktree. */
+  parent_id: string | null;
   provider: Provider;
   title: string | null;
   branch: string | null;
@@ -25,6 +27,8 @@ export interface Thread {
   mode: Mode;
   model: string | null;
   status: Status;
+  /** User messages sent; only in the lobby list and `thread.messages`. */
+  message_count?: number;
   inserted_at: string;
   updated_at: string;
 }

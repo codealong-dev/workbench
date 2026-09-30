@@ -1,7 +1,6 @@
 import { useCallback, useState } from "react";
 import { Archive, Cpu, FileDiff as FileDiffIcon, FolderGit2, GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { InputMessage, type QueuedMessage } from "@/components/ui/input-message";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { push, useThreadChannel } from "@/hooks/use-channels";
@@ -15,55 +14,20 @@ import { StatusDot } from "./status-dot";
 import { MODES } from "./modes";
 import { ChangesPanel, Counts } from "./changes-panel";
 import { OpenMenu, preferredEditor } from "./open-menu";
+import { ArchiveDialog } from "./archive-dialog";
+import { InsetTrigger, threadLabel } from "./sidebar";
 
 const CHANGES_KEY = "wb.changesOpen";
 const AGENT_NAMES: Record<string, string> = { claude: "Claude", codex: "Codex", fake: "the fake agent" };
 
 function ArchiveButton({ thread, onArchive }: { thread: Thread; onArchive: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  // Worktree threads always record the ref they branched from; in-repo threads don't.
-  const isolated = thread.base_ref != null;
   return (
     <>
       <Button size="icon-compact" variant="ghost" aria-label="Archive thread" title="Archive thread" onClick={() => setOpen(true)}>
         <Archive />
       </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent size="sm">
-          <DialogHeader>
-            <DialogTitle>Archive this thread?</DialogTitle>
-            <DialogDescription>
-              {isolated ? (
-                <>
-                  The agent stops, teardown runs and the worktree is deleted, including uncommitted changes. The branch{" "}
-                  <code className="wb-inline-code">{thread.branch}</code> is kept.
-                </>
-              ) : (
-                <>The agent stops and the thread is hidden. Your repo is not touched.</>
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button size="compact" variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              size="compact"
-              variant="primary"
-              loading={busy}
-              onClick={async () => {
-                setBusy(true);
-                await onArchive();
-                setBusy(false);
-                setOpen(false);
-              }}
-            >
-              Archive
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ArchiveDialog thread={thread} open={open} onOpenChange={setOpen} onArchive={onArchive} />
     </>
   );
 }
@@ -97,6 +61,8 @@ export function ThreadView({ id }: { id: string }) {
     [channel, host, worktree],
   );
   const ts = useStore((s) => s.byId[id]);
+  const parentId = ts?.thread.parent_id;
+  const root = useStore((s) => (parentId ? s.threads.find((t) => t.id === parentId) : undefined));
   const [draft, setDraft] = useState("");
   const [queue, setQueue] = useState<QueuedMessage[]>([]);
   const [history, setHistory] = useState<string[]>([]);
@@ -129,11 +95,15 @@ export function ThreadView({ id }: { id: string }) {
   const busy = status === "running" || status === "awaiting_approval";
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col">
-      <header className="flex items-center gap-3 border-b border-border px-5 py-2.5">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <header className="flex items-center gap-3 border-b border-border py-2.5 pr-5 pl-2">
+        <InsetTrigger />
         <StatusDot status={status} />
         <div className="min-w-0">
-          <div className="truncate text-[14px] font-medium">{thread.title || "Untitled thread"}</div>
+          <div className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate text-[14px] font-medium">{threadLabel(thread)}</span>
+            {root && <span className="truncate text-[12px] text-muted-foreground">in {threadLabel(root)}</span>}
+          </div>
           <div className="flex items-center gap-3 truncate text-[12px] text-muted-foreground">
             {thread.branch && (
               <span className="flex items-center gap-1 font-mono" title={thread.base_ref ? `from ${thread.base_ref}` : undefined}>

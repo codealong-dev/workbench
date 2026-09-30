@@ -22,6 +22,7 @@ interface Store {
   removeThread: (id: string) => void;
   upsertThread: (thread: Thread) => void;
   setThreadStatus: (id: string, status: Status) => void;
+  setMessageCount: (id: string, count: number) => void;
   hydrate: (snap: Snapshot) => void;
   apply: (events: ThreadEvent[]) => void;
 }
@@ -51,13 +52,17 @@ export const useStore = create<Store>((set) => ({
   upsertThread: (thread) =>
     set((s) => {
       const i = s.threads.findIndex((t) => t.id === thread.id);
-      const threads = i === -1 ? [thread, ...s.threads] : s.threads.map((t) => (t.id === thread.id ? thread : t));
+      // upserts carry no message_count; keep the one we have
+      const threads = i === -1 ? [thread, ...s.threads] : s.threads.map((t) => (t.id === thread.id ? { ...t, ...thread } : t));
       const ts = s.byId[thread.id];
       return { threads, byId: ts ? { ...s.byId, [thread.id]: { ...ts, thread } } : s.byId };
     }),
 
   setThreadStatus: (id, status) =>
     set((s) => ({ threads: s.threads.map((t) => (t.id === id ? { ...t, status } : t)) })),
+
+  setMessageCount: (id, count) =>
+    set((s) => ({ threads: s.threads.map((t) => (t.id === id ? { ...t, message_count: count } : t)) })),
 
   hydrate: (snap) =>
     set((s) => ({

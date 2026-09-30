@@ -96,6 +96,66 @@ defmodule Workbench.ProjectsTest do
     refute File.exists?(Path.join(repo, ".teardown-ran"))
   end
 
+  describe "sessions (child threads)" do
+    test "share the root's worktree and branch, skip setup, nest one level", %{repo: repo} do
+      {:ok, p} = Projects.add(repo)
+      {:ok, root} = Threads.create(%{project_id: p.id, provider: "fake", title: "root"})
+      {:ok, child} = Threads.create(%{parent_id: root.id, provider: "codex", title: "second opinion"})
+      {:ok, grandchild} = Threads.create(%{parent_id: child.id, provider: "fake"})
+
+      assert child.parent_id == root.id
+      assert grandchild.parent_id == root.id
+      assert {child.worktree_path, child.branch, child.base_ref, child.project_id} == {root.worktree_path, root.branch, root.base_ref, p.id}
+      assert child.provider == "codex"
+      # no setup: nothing started, nothing persisted
+      assert Threads.whereis(child.id) == nil
+      assert Items.last(child.id) == []
+
+      assert {:error, "parent thread not found"} = Threads.create(%{parent_id: Ecto.UUID.generate(), provider: "fake"})
+    end
+
+    test "message counts are listed and broadcast", %{repo: repo} do
+      {:ok, p} = Projects.add(repo)
+      {:ok, t} = Threads.create(%{project_id: p.id, provider: "fake", isolate: false})
+      Threads.subscribe(t.id)
+      Threads.subscribe_lobby()
+      :ok = Threads.send_message(t.id, "one")
+      assert_receive {:thread_messages, id, 1}
+      assert id == t.id
+      collect_until(type?("turn.completed"))
+      :ok = Threads.send_message(t.id, "two")
+      assert_receive {:thread_messages, ^id, 2}
+      assert %{message_count: 2} = Enum.find(Threads.list(), &(&1.id == t.id))
+      refute Map.has_key?(Workbench.Threads.Thread.to_json(Threads.get(t.id)), :message_count)
+    end
+
+    test "archiving a child leaves the worktree; archiving the root takes the children with it", %{repo: repo} do
+      {:ok, p} = Projects.add(repo)
+      {:ok, root} = Threads.create(%{project_id: p.id, provider: "fake", title: "root"})
+      {:ok, a} = Threads.create(%{parent_id: root.id, provider: "fake"})
+      {:ok, b} = Threads.create(%{parent_id: root.id, provider: "fake"})
+      wait_until(fn -> Threads.snapshot(root.id).status == "idle" and length(Items.last(root.id)) == 2 end)
+      Threads.subscribe_lobby()
+
+      :ok = Threads.archive(a.id)
+      assert_receive {:thread_archived, a_id}, 5_000
+      assert a_id == a.id
+      assert File.dir?(root.worktree_path)
+      refute File.exists?(Path.join(repo, ".teardown-ran"))
+
+      # b has a live server (mid-conversation); the root waits for it
+      Threads.subscribe(b.id)
+      :ok = Threads.send_message(b.id, "hi")
+      :ok = Threads.archive(root.id)
+      assert_receive {:thread_archived, b_id}, 5_000
+      assert_receive {:thread_archived, root_id}, 5_000
+      assert {b_id, root_id} == {b.id, root.id}
+      refute File.exists?(root.worktree_path)
+      assert File.exists?(Path.join(repo, ".teardown-ran"))
+      assert Threads.list() == []
+    end
+  end
+
   test "three threads run at once, each in its own worktree", %{repo: repo} do
     {:ok, p} = Projects.add(repo)
 

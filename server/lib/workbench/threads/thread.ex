@@ -10,6 +10,7 @@ defmodule Workbench.Threads.Thread do
 
   schema "threads" do
     field :project_id, :binary_id
+    field :parent_id, :binary_id
     field :provider, :string
     field :title, :string
     field :branch, :string
@@ -20,6 +21,8 @@ defmodule Workbench.Threads.Thread do
     field :model, :string
     field :status, :string, default: "idle"
     field :archived_at, :utc_datetime_usec
+    # user messages sent, filled in by `Threads.list/0`
+    field :message_count, :integer, virtual: true
     timestamps(type: :utc_datetime_usec)
   end
 
@@ -28,7 +31,7 @@ defmodule Workbench.Threads.Thread do
 
   def create_changeset(attrs) do
     %__MODULE__{}
-    |> cast(attrs, [:project_id, :provider, :title, :branch, :base_ref, :worktree_path, :mode, :model])
+    |> cast(attrs, [:project_id, :parent_id, :provider, :title, :branch, :base_ref, :worktree_path, :mode, :model])
     |> validate_required([:provider, :worktree_path])
     |> validate_inclusion(:provider, @providers)
     |> validate_inclusion(:mode, @modes)
@@ -37,10 +40,14 @@ defmodule Workbench.Threads.Thread do
     end)
   end
 
+  # message_count is only known to Threads.list/0; upserts leave it out so
+  # clients keep the count they have.
   def to_json(%__MODULE__{} = t) do
-    Map.take(t, [
+    t
+    |> Map.take([
       :id,
       :project_id,
+      :parent_id,
       :provider,
       :title,
       :branch,
@@ -50,9 +57,11 @@ defmodule Workbench.Threads.Thread do
       :mode,
       :model,
       :status,
+      :message_count,
       :archived_at,
       :inserted_at,
       :updated_at
     ])
+    |> Map.reject(fn {k, v} -> k == :message_count and is_nil(v) end)
   end
 end

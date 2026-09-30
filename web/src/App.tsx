@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Sidebar } from "@/components/app/sidebar";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { AppSidebar, InsetTrigger } from "@/components/app/sidebar";
 import { ThreadView } from "@/components/app/thread-view";
 import { NewThreadDialog } from "@/components/app/new-thread-dialog";
 import { AddProjectDialog } from "@/components/app/add-project-dialog";
@@ -53,30 +54,36 @@ export default function App() {
 
   return (
     <TooltipProvider>
-      <div className="flex h-screen overflow-hidden">
-        <Sidebar
+      {/* No icon rail: collapsed means gone; hover the left edge to peek, "[" toggles. */}
+      <SidebarProvider peek="hover" className="h-svh overflow-hidden">
+        <AppSidebar
           selected={selected}
           connected={connected}
           onSelect={select}
           onNewThread={(projectId) => setNewThread({ open: true, projectId })}
           onAddProject={() => setAddProject(true)}
         />
-        <main className="flex min-w-0 flex-1">
+        <SidebarInset className="overflow-hidden">
           {selected ? (
             <ThreadView key={selected} id={selected} />
           ) : (
-            <div className="grid flex-1 place-items-center text-[13px] text-muted-foreground">
-              {hasToken ? (
-                <span>
-                  Pick a thread, or press <kbd className="wb-inline-code">N</kbd> for a new one.
-                </span>
-              ) : (
-                "No socket token. Start Phoenix first, then reload."
-              )}
+            <div className="flex flex-1 flex-col">
+              <header className="flex h-12 shrink-0 items-center px-2">
+                <InsetTrigger />
+              </header>
+              <div className="grid flex-1 place-items-center pb-12 text-[13px] text-muted-foreground">
+                {hasToken ? (
+                  <span>
+                    Pick a thread, or press <kbd className="wb-inline-code">N</kbd> for a new one.
+                  </span>
+                ) : (
+                  "No socket token. Start Phoenix first, then reload."
+                )}
+              </div>
             </div>
           )}
-        </main>
-      </div>
+        </SidebarInset>
+      </SidebarProvider>
 
       <NewThreadDialog
         open={newThread.open}

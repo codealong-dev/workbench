@@ -6,8 +6,11 @@ defmodule WorkbenchWeb.LobbyChannel do
     * `project.add` `{path}` -> `{project}`
     * `project.branches` `{project_id}` -> `{branches, default}`
     * `thread.create` `{project_id, provider, title?, base_ref?, mode?, isolate?}` -> `{thread}`
-      (or `{cwd, ...}` without a project, as in M1)
-    * pushes: `project.upserted`, `thread.upserted`, `thread.status`, `thread.archived`
+      (or `{cwd, ...}` without a project, as in M1; or `{parent_id, provider, ...}`
+      for another session in an existing thread's worktree)
+    * `thread.archive` `{id}` -> ok (same as the thread channel's `archive`)
+    * pushes: `project.upserted`, `thread.upserted`, `thread.status`,
+      `thread.messages` `{id, count}`, `thread.archived`
   """
   use Phoenix.Channel
 
@@ -59,11 +62,14 @@ defmodule WorkbenchWeb.LobbyChannel do
         model: blank(params["model"])
       }
       |> then(fn a ->
-        case blank(params["project_id"]) do
-          nil ->
+        case {blank(params["parent_id"]), blank(params["project_id"])} do
+          {parent_id, _} when is_binary(parent_id) ->
+            Map.put(a, :parent_id, parent_id)
+
+          {nil, nil} ->
             Map.put(a, :worktree_path, params["cwd"] && Path.expand(params["cwd"]))
 
-          project_id ->
+          {nil, project_id} ->
             Map.merge(a, %{
               project_id: project_id,
               base_ref: blank(params["base_ref"]),
@@ -75,6 +81,13 @@ defmodule WorkbenchWeb.LobbyChannel do
     case Threads.create(attrs) do
       {:ok, thread} -> {:reply, {:ok, %{thread: Thread.to_json(thread)}}, socket}
       {:error, %Ecto.Changeset{} = cs} -> {:reply, {:error, %{reason: H.errors(cs)}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
+    end
+  end
+
+  def handle_in("thread.archive", %{"id" => id}, socket) when is_binary(id) do
+    case Threads.archive(id) do
+      :ok -> {:reply, :ok, socket}
       {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
     end
   end
@@ -91,6 +104,11 @@ defmodule WorkbenchWeb.LobbyChannel do
 
   def handle_info({:thread_status, id, status}, socket) do
     push(socket, "thread.status", %{id: id, status: status})
+    {:noreply, socket}
+  end
+
+  def handle_info({:thread_messages, id, count}, socket) do
+    push(socket, "thread.messages", %{id: id, count: count})
     {:noreply, socket}
   end
 

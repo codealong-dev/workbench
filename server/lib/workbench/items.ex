@@ -49,6 +49,18 @@ defmodule Workbench.Items do
     :ok
   end
 
+  @doc "Number of `kind` items per thread, as a map (threads with none are absent)."
+  def counts(kind, thread_ids) do
+    Item
+    |> where([i], i.kind == ^kind and i.thread_id in ^thread_ids)
+    |> group_by([i], i.thread_id)
+    |> select([i], {i.thread_id, count(i.id)})
+    |> Repo.all()
+    |> Map.new()
+  end
+
+  def count(thread_id, kind), do: Map.get(counts(kind, [thread_id]), thread_id, 0)
+
   @doc "The last `limit` items, oldest first. `before_seq` pages backwards."
   def last(thread_id, limit \\ 200, before_seq \\ nil) do
     Item

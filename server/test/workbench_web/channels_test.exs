@@ -58,9 +58,19 @@ defmodule WorkbenchWeb.ChannelsTest do
     ref = push(lobby, "thread.create", %{"project_id" => pid, "provider" => "fake", "title" => "From feature", "base_ref" => "feature-x"})
     assert_reply ref, :ok, %{thread: %{id: tid, branch: "wb/from-feature-" <> _, base_ref: "feature-x", project_id: ^pid}}
 
+    ref = push(lobby, "thread.create", %{"parent_id" => tid, "provider" => "codex", "title" => "Codex"})
+    assert_reply ref, :ok, %{thread: %{id: cid, parent_id: ^tid, branch: "wb/from-feature-" <> _, provider: "codex"}}
+
+    ref = push(lobby, "thread.archive", %{"id" => cid})
+    assert_reply ref, :ok
+    assert_push "thread.archived", %{id: ^cid}, 5_000
+    ref = push(lobby, "thread.create", %{"parent_id" => tid, "provider" => "fake"})
+    assert_reply ref, :ok, %{thread: %{id: cid2}}
+
     {:ok, _snap, chan} = subscribe_and_join(socket, "thread:" <> tid, %{})
     ref = push(chan, "archive", %{})
     assert_reply ref, :ok
+    assert_push "thread.archived", %{id: ^cid2}, 5_000
     assert_push "thread.archived", %{id: ^tid}, 5_000
   end
 

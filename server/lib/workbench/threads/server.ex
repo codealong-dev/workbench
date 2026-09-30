@@ -87,8 +87,11 @@ defmodule Workbench.Threads.Server do
   def handle_continue(:archive, st) do
     st = st |> flush() |> close_provider() |> stop_setup()
     thread = st.thread
+    # child sessions borrow the root's worktree; only the root tears it down
+    if is_nil(thread.parent_id), do: Threads.archive_children(thread.id)
 
-    with %{} = project <- thread.project_id && Workbench.Projects.get(thread.project_id),
+    with nil <- thread.parent_id,
+         %{} = project <- thread.project_id && Workbench.Projects.get(thread.project_id),
          true <- Workbench.Worktrees.managed?(project, thread.worktree_path) do
       env = [{"WB_REPO", project.repo_path}, {"WB_WORKTREE", thread.worktree_path}]
 
@@ -135,6 +138,7 @@ defmodule Workbench.Threads.Server do
         |> set_status("running")
         |> touch()
 
+      Threads.broadcast_lobby({:thread_messages, st.thread.id, Items.count(st.thread.id, "user_message")})
       {:reply, :ok, st}
     else
       {:error, reason} ->

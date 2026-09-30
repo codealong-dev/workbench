@@ -19,6 +19,7 @@ A local-first workbench for running coding agents in parallel. A Phoenix app run
 | M7 remote machine | Done: `WB_BIND`/`WB_ORIGINS`, one-time login link for other machines, SSH "Open in", Push + Open PR. See [docs/remote.md](docs/remote.md) |
 | M8 several machines | Next: one UI, threads on several nodes over Tailscale |
 | M9 Codex | Done: `codex app-server` over JSON-RPC from Elixir; streaming, approvals (commands, file patches, permissions), interrupt, resume, modes |
+| Sidebar + sessions | Done: Fluid Functionalism sidebar (inset, no icon rail, hover-peek, `[` toggles, drag to resize), search (⌘K), per-project filter, several Claude/Codex sessions per worktree as a tree, theme toggle |
 | M10 polish | Next |
 
 ## Requirements
@@ -39,7 +40,11 @@ Add a project (any local git repo), then press **N** or **+** for a new thread. 
 
 **Changes** in the thread header shows the diff against the thread's base (merge base with the branch it was cut from, so commits and uncommitted edits both count; in-repo threads diff against HEAD). It refreshes whenever the agent finishes a turn. **Open in** opens the worktree in Zed, VS Code, Cursor or Finder, using the editor's CLI if it's on PATH or `open -a` otherwise; the icon on each file in the diff opens that file.
 
-Archiving a thread stops the agent, runs teardown and deletes the worktree. The branch is kept.
+**Sessions.** A thread's **⋮** menu adds another Claude or Codex session to the same worktree and branch (no new worktree, no setup), so you can get a second opinion or split work between agents on one branch. Sessions show nested under their thread. The number on a row is how many messages you've sent. **Branch thread** (the ↳ icon) is a placeholder for now.
+
+Archiving a thread stops the agent, runs teardown and deletes the worktree; its sessions are archived with it. The branch is kept. Archiving a session only stops and hides it.
+
+**Sidebar keys:** `[` hides or shows the sidebar (hover the left edge to peek while hidden), ⌘K / Ctrl+K searches threads by title, branch, agent or project, `N` opens a new thread.
 
 ### Project config
 
