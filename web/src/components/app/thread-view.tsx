@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Archive, Cpu, FolderGit2, GitBranch, GitCompareArrows, PanelRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InputMessage, type QueuedMessage } from "@/components/ui/input-message";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { push, useThreadChannel } from "@/hooks/use-channels";
 import { fetchFilePatch, useDiff } from "@/hooks/use-diff";
 import { useFiles } from "@/hooks/use-files";
@@ -12,7 +11,9 @@ import type { Answers, Decision, Editor, PushResult, Thread } from "@/contracts"
 import { isRemote, remoteEditorUrl } from "@/lib/remote";
 import { Timeline } from "./timeline";
 import { StatusDot } from "./status-dot";
-import { MODES } from "./modes";
+import { ComposerBar } from "./composer-bar";
+import { PANEL, PANEL_GAP } from "./panel";
+import { cn } from "@/lib/utils";
 import { Counts } from "./diff-view";
 import { SidePanel, type PanelTab } from "./side-panel";
 import { Viewer, tabKey, type ViewerTab } from "./viewer";
@@ -156,7 +157,7 @@ export function ThreadView({ id }: { id: string }) {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex items-center gap-3 border-b border-border py-2.5 pr-5 pl-2">
+      <header className="flex items-center gap-3 py-1.5 pr-1.5 pl-1">
         <InsetTrigger />
         <StatusDot status={status} />
         <div className="min-w-0">
@@ -183,22 +184,6 @@ export function ThreadView({ id }: { id: string }) {
           </div>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          <div className="w-44">
-            <Select
-              value={thread.mode}
-              onValueChange={(mode) => void push(channel.current, "set_mode", { mode })}
-              size="compact"
-            >
-              <SelectTrigger variant="borderless" />
-              <SelectContent>
-                {MODES.map((m, i) => (
-                  <SelectItem key={m.value} index={i} value={m.value}>
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
           <Tooltip content={diffShown ? "Hide changes" : "Show changes against the base branch"} side="bottom">
             <Button
               size="compact"
@@ -230,8 +215,8 @@ export function ThreadView({ id }: { id: string }) {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-[340px] flex-1 flex-col">
+      <div className={cn("flex min-h-0 flex-1", PANEL_GAP)}>
+        <div className={cn("flex min-w-[340px] flex-1 flex-col", PANEL)}>
           <Timeline items={ts.items} live={ts.live} pending={ts.pending} status={status} onDecide={decide} agent={capitalize(AGENT_NAMES[thread.provider] ?? "the agent")} />
 
           <div className="mx-auto w-full max-w-3xl px-6 pb-5">
@@ -248,6 +233,7 @@ export function ThreadView({ id }: { id: string }) {
               placeholder={busy ? "Queue a follow-up…" : `Ask ${AGENT_NAMES[thread.provider] ?? "the agent"} to do something…`}
               maxRows={12}
             />
+            <ComposerBar thread={thread} channel={channel} />
           </div>
         </div>
 

@@ -40,6 +40,7 @@ export interface Thread {
   session_id: string | null;
   mode: Mode;
   model: string | null;
+  effort?: string | null;
   status: Status;
   /** User messages sent; only in the lobby list and `thread.messages`. */
   message_count?: number;
@@ -160,4 +161,13 @@ export interface TerminalInfo {
   cols: number;
   rows: number;
   created_at: string;
+}
+
+/** A model a provider offers, in one shape for every provider. */
+export interface ModelOption {
+  id: string;
+  name: string;
+  description: string;
+  efforts: { value: string; description: string }[];
+  default_effort: string | null;
 }

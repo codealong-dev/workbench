@@ -19,6 +19,7 @@ defmodule Workbench.Threads.Thread do
     field :session_id, :string
     field :mode, :string, default: "default"
     field :model, :string
+    field :effort, :string
     field :status, :string, default: "idle"
     field :archived_at, :utc_datetime_usec
     # user messages sent, filled in by `Threads.list/0`
@@ -31,7 +32,7 @@ defmodule Workbench.Threads.Thread do
 
   def create_changeset(attrs) do
     %__MODULE__{}
-    |> cast(attrs, [:project_id, :parent_id, :provider, :title, :branch, :base_ref, :worktree_path, :mode, :model])
+    |> cast(attrs, [:project_id, :parent_id, :provider, :title, :branch, :base_ref, :worktree_path, :mode, :model, :effort])
     |> validate_required([:provider, :worktree_path])
     |> validate_inclusion(:provider, @providers)
     |> validate_inclusion(:mode, @modes)
@@ -56,6 +57,7 @@ defmodule Workbench.Threads.Thread do
       :session_id,
       :mode,
       :model,
+      :effort,
       :status,
       :message_count,
       :archived_at,

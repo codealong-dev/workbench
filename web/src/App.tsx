@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar, InsetTrigger } from "@/components/app/sidebar";
+import { PANEL } from "@/components/app/panel";
+import { cn } from "@/lib/utils";
 import { ThreadView } from "@/components/app/thread-view";
 import { NewThreadDialog } from "@/components/app/new-thread-dialog";
 import { AddProjectDialog } from "@/components/app/add-project-dialog";
@@ -63,15 +65,16 @@ export default function App() {
           onNewThread={(projectId) => setNewThread({ open: true, projectId })}
           onAddProject={() => setAddProject(true)}
         />
-        <SidebarInset className="overflow-hidden">
+        {/* no card of its own: the thread's panes are the cards (see panel.ts) */}
+        <SidebarInset className="overflow-hidden peer-data-[variant=inset]:m-1 peer-data-[variant=inset]:peer-data-[side=left]:ml-0 peer-data-[variant=inset]:peer-data-[state=collapsed]:peer-data-[side=left]:ml-1 peer-data-[variant=inset]:rounded-none peer-data-[variant=inset]:bg-transparent peer-data-[variant=inset]:shadow-none">
           {selected ? (
             <ThreadView key={selected} id={selected} />
           ) : (
             <div className="flex flex-1 flex-col">
-              <header className="flex h-12 shrink-0 items-center px-2">
+              <header className="flex h-10 shrink-0 items-center px-1">
                 <InsetTrigger />
               </header>
-              <div className="grid flex-1 place-items-center pb-12 text-[13px] text-muted-foreground">
+              <div className={cn("grid flex-1 place-items-center pb-12 text-[13px] text-muted-foreground", PANEL)}>
                 {hasToken ? (
                   <span>
                     Pick a thread, or press <kbd className="wb-inline-code">N</kbd> for a new one.

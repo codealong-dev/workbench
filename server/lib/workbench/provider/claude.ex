@@ -36,6 +36,7 @@ defmodule Workbench.Provider.Claude do
             cwd: opts.cwd,
             resume: opts[:resume],
             model: opts[:model],
+            effort: opts[:effort],
             mode: opts.mode
           })
 
@@ -59,6 +60,18 @@ defmodule Workbench.Provider.Claude do
   @impl true
   def respond(%{io: io} = p, request_id, decision, answers) do
     Proc.write_json(io, %{op: "approve", request_id: request_id, decision: decision, answers: answers})
+    {:ok, p}
+  end
+
+  @impl true
+  def set_model(%{io: io} = p, model, effort) do
+    Proc.write_json(io, %{op: "set_model", model: model, effort: effort})
+    {:ok, p}
+  end
+
+  @impl true
+  def list_models(%{io: io} = p) do
+    Proc.write_json(io, %{op: "models"})
     {:ok, p}
   end
 

@@ -50,4 +50,16 @@ defmodule WorkbenchWeb.RouterTest do
     assert UserSocket.check_origin?(URI.parse("http://macmini:4000"))
     Application.delete_env(:workbench, :allowed_origins)
   end
+
+  test "editor icons: the cached app icon, else 404" do
+    path = Path.join([Workbench.Home.dir(), "icons", "cursor.png"])
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, <<137, 80, 78, 71>>)
+    on_exit(fn -> File.rm(path) end)
+
+    conn = call(conn(:get, "/api/editor-icon/cursor"))
+    assert conn.status == 200
+    assert ["image/png" <> _] = Plug.Conn.get_resp_header(conn, "content-type")
+    assert call(conn(:get, "/api/editor-icon/nope")).status == 404
+  end
 end

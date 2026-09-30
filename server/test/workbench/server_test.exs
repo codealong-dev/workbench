@@ -190,4 +190,18 @@ defmodule Workbench.ServerTest do
     :ok = Threads.set_mode(t.id, "bypassPermissions")
     assert [%{"tool" => "AskUserQuestion"}] = Threads.snapshot(t.id).pending
   end
+
+  test "models come from the provider (then the cache); set_model persists", %{dir: dir} do
+    :persistent_term.erase({Workbench.Models, "fake"})
+    t = create_thread(dir)
+    assert {:ok, [%{"id" => "fake-smart", "efforts" => [_, _, _]}, %{"id" => "fake-fast", "efforts" => []}]} = Threads.models(t.id)
+    assert Workbench.Models.get("fake") |> length() == 2
+
+    Threads.subscribe_lobby()
+    :ok = Threads.set_model(t.id, "fake-smart", "high")
+    assert_receive {:thread_upserted, %{model: "fake-smart", effort: "high"}}
+    :ok = Threads.set_model(t.id, nil, nil)
+    assert %{model: nil, effort: nil} = Threads.get(t.id)
+    :persistent_term.erase({Workbench.Models, "fake"})
+  end
 end

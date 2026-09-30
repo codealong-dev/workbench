@@ -31,7 +31,8 @@ defmodule Workbench.Provider do
           cwd: String.t(),
           resume: String.t() | nil,
           mode: String.t(),
-          model: String.t() | nil
+          model: String.t() | nil,
+          effort: String.t() | nil
         }
 
   @callback open(open_opts()) :: {:ok, pstate()} | {:error, term()}
@@ -45,6 +46,10 @@ defmodule Workbench.Provider do
   @callback respond(pstate(), request_id :: String.t(), decision(), answers :: %{String.t() => [String.t()]} | nil) ::
               {:ok, pstate()}
   @callback set_mode(pstate(), mode :: String.t()) :: {:ok, pstate()}
+  @doc "Switch model and effort (nil = the provider's default) from the next response on."
+  @callback set_model(pstate(), model :: String.t() | nil, effort :: String.t() | nil) :: {:ok, pstate()}
+  @doc "Ask for the models on offer; they arrive as a `models` event (see Workbench.Models)."
+  @callback list_models(pstate()) :: {:ok, pstate()}
   @callback handle_line(pstate(), line :: binary()) :: {[event()], pstate()}
   @callback close(pstate()) :: :ok
 

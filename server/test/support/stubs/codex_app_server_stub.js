@@ -134,6 +134,10 @@ async function runTurn(text, params) {
     return; // turn/interrupt completes it
   }
 
+  if (text === "model") {
+    return agentMessage(`model=${p_or(params.model)} effort=${p_or(params.effort)}`, 1).then(() => complete("completed"));
+  }
+
   if (text === "policy") {
     return agentMessage(`approval=${JSON.stringify(params.approvalPolicy)} sandbox=${params.sandboxPolicy && params.sandboxPolicy.type}`, 1).then(() => complete("completed"));
   }
@@ -141,6 +145,8 @@ async function runTurn(text, params) {
   await agentMessage(`echo: ${text}`, 1);
   complete("completed");
 }
+
+function p_or(v) { return v === undefined ? "unset" : v; }
 
 readline.createInterface({ input: process.stdin }).on("line", (line) => {
   const m = JSON.parse(line);
@@ -170,6 +176,11 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       runTurn(text, p);
       return;
     }
+    case "model/list":
+      return out({ id: m.id, result: { nextCursor: null, data: [
+        { id: "gpt-a", model: "gpt-a", displayName: "GPT A", description: "the big one", hidden: false, supportedReasoningEfforts: [{ reasoningEffort: "low", description: "quick" }, { reasoningEffort: "high", description: "deep" }], defaultReasoningEffort: "high" },
+        { id: "gpt-hidden", model: "gpt-hidden", displayName: "Hidden", description: "", hidden: true, supportedReasoningEfforts: [], defaultReasoningEffort: "low" },
+      ] } });
     case "turn/interrupt":
       interrupted = true;
       out({ id: m.id, result: {} });

@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils";
 import type { DiffFile, DiffResult, FileList, FileStatus, PushResult } from "@/contracts";
 import { ancestors, buildTree, flattenTree, TreeRows, type Row } from "./file-tree";
 import { Counts } from "./diff-view";
+import { PANEL } from "./panel";
 
 export type PanelTab = "files" | "changes" | "terminal";
 type PushOutcome = { ok: true; result: PushResult } | { ok: false; error: string };
@@ -408,7 +409,7 @@ export function SidePanel(props: {
   const count = diff?.files.length ?? 0;
 
   return (
-    <aside className="relative flex min-h-0 shrink-0 flex-col border-l border-border" style={{ width }} aria-label="Files and changes">
+    <aside className={cn("relative flex min-h-0 shrink-0 flex-col", PANEL, "overflow-visible")} style={{ width }} aria-label="Files and changes">
       <ResizeHandle onMouseDown={onMouseDown} dragging={dragging} side="left" />
       <div className="flex shrink-0 items-center border-b border-border px-2 py-1.5">
         <Tabs value={tab} onValueChange={(v) => onTab(v as PanelTab)} size="compact">

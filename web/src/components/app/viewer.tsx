@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { useResolvedTheme } from "@/lib/theme";
 import type { DiffResult, FileContent } from "@/contracts";
 import { DiffView } from "./diff-view";
+import { PANEL } from "./panel";
 
 export type ViewerTab = { kind: "diff" } | { kind: "file"; path: string };
 export const tabKey = (t: ViewerTab) => (t.kind === "diff" ? "diff" : "f:" + t.path);
@@ -173,7 +174,7 @@ export function Viewer(props: {
   const current = tabs.find((t) => tabKey(t) === active) ?? tabs[0];
 
   return (
-    <section className="relative flex min-h-0 min-w-[320px] shrink flex-col border-l border-border" style={{ width }}>
+    <section className={cn("relative flex min-h-0 min-w-[320px] shrink flex-col", PANEL, "overflow-visible")} style={{ width }}>
       <ResizeHandle onMouseDown={onMouseDown} dragging={dragging} side="left" />
       <div className="flex shrink-0 items-center gap-1 border-b border-border px-1.5 py-1">
         <TabStrip tabs={tabs} active={active} onActivate={props.onActivate} onClose={props.onClose} changeCount={props.diff?.files.length ?? 0} />

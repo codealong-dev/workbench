@@ -63,7 +63,9 @@ defmodule Workbench.Threads.Server do
           # item_id => tool item, until tool.completed
           tools: %{},
           # project setup commands in flight: %{cmds, env, n, current: %{io, pid, item_id, out}}
-          setup: nil
+          setup: nil,
+          # callers waiting for the provider's model list
+          model_waiters: []
         }
 
         {:ok, st, {:continue, {:recover, thread.status}}}
@@ -224,6 +226,40 @@ defmodule Workbench.Threads.Server do
 
   def handle_call(:archive, _from, st), do: {:reply, :ok, st, {:continue, :archive}}
 
+  # The provider's models: from the cache, else ask a running agent (starting
+  # one if needed; no turn, so nothing is spent).
+  def handle_call(:models, from, st) do
+    case Workbench.Models.get(st.thread.provider) do
+      models when is_list(models) and models != [] ->
+        {:reply, {:ok, models}, st}
+
+      _ ->
+        with {:ok, st} <- ensure_provider(st),
+             {:ok, p} <- st.provider.list_models(st.pstate) do
+          if st.model_waiters == [], do: Process.send_after(self(), :models_timeout, 12_000)
+          {:noreply, touch(%{st | pstate: p, model_waiters: [from | st.model_waiters]})}
+        else
+          {:error, reason} -> {:reply, {:error, if(is_binary(reason), do: reason, else: inspect(reason))}, st}
+        end
+    end
+  end
+
+  def handle_call({:set_model, model, effort}, _from, st) do
+    thread = st.thread |> Ecto.Changeset.change(model: model, effort: effort) |> Repo.update!()
+    st = %{st | thread: thread}
+
+    st =
+      if st.pstate do
+        {:ok, p} = st.provider.set_model(st.pstate, model, effort)
+        %{st | pstate: p}
+      else
+        st
+      end
+
+    Threads.broadcast_lobby({:thread_upserted, thread})
+    {:reply, :ok, st}
+  end
+
   @impl true
   def handle_cast({:setup, cmds, env}, st) do
     st = %{st | setup: %{cmds: cmds, env: env, n: 0, current: nil}} |> set_status("running")
@@ -261,6 +297,13 @@ defmodule Workbench.Threads.Server do
 
   def handle_info({:provider_exited, pid, reason}, %{pstate: %{pid: pid}} = st),
     do: {:noreply, provider_exited(st, reason)}
+
+  def handle_info(:models_timeout, %{model_waiters: []} = st), do: {:noreply, st}
+
+  def handle_info(:models_timeout, st) do
+    for from <- st.model_waiters, do: GenServer.reply(from, {:error, "the agent did not list its models"})
+    {:noreply, %{st | model_waiters: []}}
+  end
 
   def handle_info(:flush, st), do: {:noreply, flush(%{st | flush_ref: nil})}
 
@@ -338,6 +381,14 @@ defmodule Workbench.Threads.Server do
 
   defp emit(st, %{"type" => "turn.started"} = ev) do
     %{st | turn_id: ev["turn_id"]} |> broadcast(ev) |> set_status("running")
+  end
+
+  # not part of the conversation: cached and handed to whoever asked
+  defp emit(st, %{"type" => "models", "models" => models} = ev) do
+    if models != [], do: Workbench.Models.put(st.thread.provider, models)
+    reply = if models == [] and ev["error"], do: {:error, ev["error"]}, else: {:ok, models}
+    for from <- st.model_waiters, do: GenServer.reply(from, reply)
+    %{st | model_waiters: []}
   end
 
   defp emit(st, %{"type" => "item.completed", "item" => item} = ev) do
@@ -566,7 +617,8 @@ defmodule Workbench.Threads.Server do
       cwd: st.thread.worktree_path,
       resume: st.thread.session_id,
       mode: st.thread.mode,
-      model: st.thread.model
+      model: st.thread.model,
+      effort: st.thread.effort
     }
 
     case st.provider.open(opts) do

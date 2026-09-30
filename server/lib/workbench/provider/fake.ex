@@ -42,6 +42,25 @@ defmodule Workbench.Provider.Fake do
   end
 
   @impl true
+  def set_model(p, _model, _effort), do: {:ok, p}
+
+  @impl true
+  def list_models(%{io: pid} = p) do
+    send(pid, :models)
+    {:ok, p}
+  end
+
+  @doc false
+  def models do
+    efforts = for e <- ~w(low medium high), do: %{"value" => e, "description" => ""}
+
+    [
+      %{"id" => "fake-smart", "name" => "Fake Smart", "description" => "Thinks harder, replies the same", "efforts" => efforts, "default_effort" => "medium"},
+      %{"id" => "fake-fast", "name" => "Fake Fast", "description" => "No effort setting", "efforts" => [], "default_effort" => nil}
+    ]
+  end
+
+  @impl true
   def respond(%{io: pid} = p, request_id, decision, answers) do
     send(pid, {:respond, request_id, decision, answers})
     {:ok, p}
@@ -85,6 +104,10 @@ defmodule Workbench.Provider.Fake do
 
   defp loop(st) do
     receive do
+      :models ->
+        emit(st.server, %{"type" => "models", "models" => models()})
+        loop(st)
+
       {:send, text} ->
         n = st.n + 1
         steps = turn_steps(st.turns, n, text)

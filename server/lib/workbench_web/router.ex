@@ -21,6 +21,20 @@ defmodule WorkbenchWeb.Router do
     send_resp(conn, 200, ~s({"ok":true}))
   end
 
+  # the editors' own app icons, for the "Open in" button
+  get "/api/editor-icon/:id" do
+    case Workbench.Editors.icon(id) do
+      {:ok, path} ->
+        conn
+        |> put_resp_content_type("image/png")
+        |> Plug.Conn.put_resp_header("cache-control", "public, max-age=86400")
+        |> send_file(200, path)
+
+      {:error, _} ->
+        send_resp(conn, 404, "")
+    end
+  end
+
   match _ do
     conn = Plug.Conn.fetch_cookies(conn) |> Plug.Conn.fetch_query_params()
     token = Workbench.Home.token()

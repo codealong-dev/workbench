@@ -166,6 +166,13 @@ defmodule Workbench.Threads do
   def respond(id, request_id, decision, answers \\ nil), do: call(id, {:respond, request_id, decision, answers})
   def set_mode(id, mode), do: call(id, {:set_mode, mode})
 
+  @doc "The provider's models (see Workbench.Models)."
+  def models(id), do: call(id, :models)
+
+  @doc "Model and effort for the next responses; nil means the provider's default."
+  def set_model(id, model, effort) when (is_binary(model) or is_nil(model)) and (is_binary(effort) or is_nil(effort)),
+    do: call(id, {:set_model, model, effort})
+
   @doc "Current state for a joining client: thread, status, seq, items, live text, pending approvals."
   def snapshot(id), do: call(id, :snapshot)
 

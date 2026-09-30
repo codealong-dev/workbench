@@ -45,6 +45,20 @@ defmodule WorkbenchWeb.ThreadChannel do
     result(Threads.set_mode(socket.assigns.thread_id, mode), socket)
   end
 
+  # `models` -> {models}; `set_model` {model, effort} (either may be null = default)
+  def handle_in("models", _params, socket) do
+    case Threads.models(socket.assigns.thread_id) do
+      {:ok, models} -> {:reply, {:ok, %{models: models}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
+    end
+  end
+
+  def handle_in("set_model", params, socket) do
+    model = if is_binary(params["model"]) and params["model"] != "", do: params["model"]
+    effort = if is_binary(params["effort"]) and params["effort"] != "", do: params["effort"]
+    result(Threads.set_model(socket.assigns.thread_id, model, effort), socket)
+  end
+
   # `{}` full diff, `{summary: true}` file list only, `{path}` one file's patch.
   def handle_in("diff", params, socket) do
     opts = [summary: params["summary"] == true, path: params["path"]]

@@ -225,6 +225,25 @@ defmodule Workbench.CodexProviderTest do
       assert "thread-" <> _ = Threads.get(t2.id).session_id
     end
 
+    test "models: listed from model/list; model and effort go with the next turn", %{dir: dir} do
+      :persistent_term.erase({Workbench.Models, "codex"})
+      t = create_thread(dir, %{provider: "codex"})
+      Threads.subscribe(t.id)
+      assert {:ok, [%{"id" => "gpt-a", "name" => "GPT A", "efforts" => [%{"value" => "low"}, %{"value" => "high"}], "default_effort" => "high"}]} = Threads.models(t.id)
+
+      :ok = Threads.send_message(t.id, "model")
+      events = collect_until(type?("turn.completed"))
+      assert Enum.any?(events, &(&1["type"] == "item.completed" and &1["item"]["text"] == "model=unset effort=unset"))
+
+      :ok = Threads.set_model(t.id, "gpt-a", "low")
+      :ok = Threads.send_message(t.id, "model")
+      events = collect_until(type?("turn.completed"))
+      assert Enum.any?(events, &(&1["type"] == "item.completed" and &1["item"]["text"] == "model=gpt-a effort=low"))
+      assert %{model: "gpt-a", effort: "low"} = Threads.get(t.id)
+    after
+      :persistent_term.erase({Workbench.Models, "codex"})
+    end
+
     test "codex crashing mid-turn is a fatal error with its stderr", %{dir: dir} do
       t = create_thread(dir, %{provider: "codex"})
       Threads.subscribe(t.id)

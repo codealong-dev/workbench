@@ -10,7 +10,8 @@
 
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
-import { query, type PermissionMode, type Query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query, type EffortLevel, type PermissionMode, type Query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { toModels } from "./models.ts";
 import { Inbox } from "./inbox.ts";
 import { initialState, normalize, type Event } from "./normalize.ts";
 import { toQuestions, withAnswers } from "./questions.ts";
@@ -18,7 +19,9 @@ import { toQuestions, withAnswers } from "./questions.ts";
 type Decision = "allow" | "allow_session" | "deny" | "answer";
 type Response = { decision: Decision; answers?: Record<string, string[]> };
 type Op =
-  | { op: "start"; cwd?: string; resume?: string | null; model?: string | null; mode?: PermissionMode }
+  | { op: "start"; cwd?: string; resume?: string | null; model?: string | null; effort?: EffortLevel | null; mode?: PermissionMode }
+  | { op: "set_model"; model?: string | null; effort?: EffortLevel | null }
+  | { op: "models" }
   | { op: "send"; text: string }
   | { op: "interrupt" }
   | { op: "approve"; request_id: string; decision: Decision; answers?: Record<string, string[]> }
@@ -43,7 +46,8 @@ function start(op: Extract<Op, { op: "start" }>) {
     options: {
       cwd: op.cwd ?? process.cwd(),
       ...(op.resume ? { resume: op.resume } : {}),
-      ...(op.model ? { model: op.model } : {}),
+      ...(op.model && op.model !== "default" ? { model: op.model } : {}),
+      ...(op.effort ? { effort: op.effort } : {}),
       permissionMode: op.mode ?? "default",
       // Without this the CLI refuses bypassPermissions, both at start and when
       // the user switches to it mid-conversation (setPermissionMode rejects).
@@ -141,6 +145,21 @@ async function handle(op: Op) {
         log("set_mode failed:", e?.message ?? e);
         emit({ type: "error", message: `Could not switch to ${op.mode}: ${e?.message ?? e}`, fatal: false });
       });
+    case "set_model":
+      if (!q) return;
+      try {
+        await q.setModel(op.model && op.model !== "default" ? op.model : undefined);
+        await q.applyFlagSettings({ effortLevel: op.effort ?? null });
+      } catch (e) {
+        emit({ type: "error", message: `Could not switch model: ${(e as Error)?.message ?? e}`, fatal: false });
+      }
+      return;
+    case "models":
+      if (!q) return emit({ type: "models", models: [], error: "not started" } as Event);
+      return q
+        .supportedModels()
+        .then((ms) => emit({ type: "models", models: toModels(ms) } as Event))
+        .catch((e) => emit({ type: "models", models: [], error: String(e?.message ?? e) } as Event));
     case "stop":
       return stop(0);
   }

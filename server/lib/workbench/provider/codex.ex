@@ -83,7 +83,10 @@ defmodule Workbench.Provider.Codex do
       cwd: opts.cwd,
       mode: opts.mode,
       model: opts[:model],
+      effort: opts[:effort],
       resume: opts[:resume],
+      initialized: false,
+      models_wanted: false,
       thread_id: nil,
       turn_id: nil,
       queued: [],
@@ -122,6 +125,16 @@ defmodule Workbench.Provider.Codex do
 
   @impl true
   def set_mode(p, mode), do: {:ok, %{p | mode: mode}}
+
+  # applied from the next turn (turn/start carries them)
+  @impl true
+  def set_model(p, model, effort), do: {:ok, %{p | model: model, effort: effort}}
+
+  @impl true
+  def list_models(%{initialized: false} = p), do: {:ok, %{p | models_wanted: true}}
+  def list_models(p), do: {:ok, request_models(p)}
+
+  defp request_models(p), do: call(p, :model_list, "model/list", %{"limit" => 100})
 
   @impl true
   def handle_line(p, line) do
@@ -171,12 +184,17 @@ defmodule Workbench.Provider.Codex do
   defp start_turn(p, text) do
     {approval, _, sandbox_policy} = mode_policy(p.mode)
 
-    call(p, :turn_start, "turn/start", %{
-      "threadId" => p.thread_id,
-      "input" => [%{"type" => "text", "text" => text, "text_elements" => []}],
-      "approvalPolicy" => approval,
-      "sandboxPolicy" => sandbox_policy
-    })
+    params =
+      %{
+        "threadId" => p.thread_id,
+        "input" => [%{"type" => "text", "text" => text, "text_elements" => []}],
+        "approvalPolicy" => approval,
+        "sandboxPolicy" => sandbox_policy
+      }
+      |> put_if("model", p.model)
+      |> put_if("effort", p.effort)
+
+    call(p, :turn_start, "turn/start", params)
   end
 
   # -- responses ----------------------------------------------------------------
@@ -188,6 +206,8 @@ defmodule Workbench.Provider.Codex do
 
   defp handle_response(p, :initialize, {:ok, _}) do
     p.write.(%{"method" => "initialized"})
+    p = %{p | initialized: true}
+    p = if p.models_wanted, do: request_models(%{p | models_wanted: false}), else: p
 
     p =
       if p.resume,
@@ -202,6 +222,25 @@ defmodule Workbench.Provider.Codex do
 
     {[], p}
   end
+
+  defp handle_response(p, :model_list, {:ok, %{"data" => data}}) do
+    models =
+      for m <- data, m["hidden"] != true do
+        %{
+          "id" => m["model"] || m["id"],
+          "name" => m["displayName"] || m["model"],
+          "description" => m["description"] || "",
+          "efforts" =>
+            Enum.map(m["supportedReasoningEfforts"] || [], &%{"value" => &1["reasoningEffort"], "description" => &1["description"] || ""}),
+          "default_effort" => m["defaultReasoningEffort"]
+        }
+      end
+
+    {[%{"type" => "models", "models" => models}], p}
+  end
+
+  defp handle_response(p, :model_list, {:error, e}),
+    do: {[%{"type" => "models", "models" => [], "error" => msg(e)}], p}
 
   defp handle_response(p, :initialize, {:error, e}),
     do: {[fatal("Codex failed to initialize: #{msg(e)}")], p}
@@ -573,6 +612,9 @@ defmodule Workbench.Provider.Codex do
   end
 
   # -- helpers ------------------------------------------------------------------
+
+  defp put_if(map, _key, nil), do: map
+  defp put_if(map, key, value), do: Map.put(map, key, value)
 
   defp usage(%{usage_total: nil}), do: nil
 

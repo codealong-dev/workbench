@@ -19,10 +19,38 @@ const MENU = EDITORS.filter((e) => !(isRemote && e.id === "finder"));
 
 export function preferredEditor(): Editor {
   const saved = localStorage.getItem(EDITOR_KEY) as Editor | null;
-  return EDITORS.some((e) => e.id === saved) && saved !== "finder" ? saved! : "zed";
+  return EDITORS.some((e) => e.id === saved) && saved !== "finder" ? saved! : "code";
 }
 
-/** "Open in Zed" plus a menu for the other editors; remembers the last editor used. */
+// The app's own icon, served from the Workbench machine (macOS); a generic
+// glyph when it isn't installed there.
+const missing = new Set<Editor>();
+
+export function EditorIcon({ id, size = 16 }: { id: Editor; size?: number }) {
+  const [failed, setFailed] = useState(missing.has(id));
+  const Fallback = EDITORS.find((e) => e.id === id)?.icon ?? Code;
+  if (failed) return <Fallback size={size} strokeWidth={1.5} className="shrink-0" />;
+  return (
+    <img
+      src={`/api/editor-icon/${id}`}
+      alt=""
+      width={size}
+      height={size}
+      draggable={false}
+      className="shrink-0"
+      onError={() => {
+        missing.add(id);
+        setFailed(true);
+      }}
+    />
+  );
+}
+
+const ICONS = Object.fromEntries(
+  EDITORS.map((e) => [e.id, (p: { size?: number }) => <EditorIcon id={e.id} size={p.size ?? 16} />]),
+) as Record<Editor, (p: { size?: number }) => React.JSX.Element>;
+
+/** The last-used editor's icon (VS Code by default) plus a menu for the others. */
 export function OpenMenu({ path, onOpen }: { path: string; onOpen: (editor: Editor) => Promise<string | null> }) {
   const [editor, setEditor] = useState<Editor>(preferredEditor);
   const [note, setNote] = useState<string | null>(null);
@@ -43,13 +71,13 @@ export function OpenMenu({ path, onOpen }: { path: string; onOpen: (editor: Edit
       <Button
         size="compact"
         variant="secondary"
-        leadingIcon={current.icon}
         onClick={() => void open(editor)}
-        className="rounded-r-none"
-        title={isRemote ? "Opens over SSH from this machine's editor" : undefined}
+        className="gap-1.5 rounded-r-none px-2"
+        aria-label={`Open in ${current.label}`}
+        title={isRemote ? `Open in ${current.label} over SSH` : `Open in ${current.label}`}
       >
-        Open in {current.label}
-        {isRemote && <span className="text-muted-foreground"> (SSH)</span>}
+        <EditorIcon id={editor} />
+        {isRemote && <span className="text-[11px] text-muted-foreground">SSH</span>}
       </Button>
       <DropdownMenu>
         <DropdownTrigger
@@ -61,7 +89,7 @@ export function OpenMenu({ path, onOpen }: { path: string; onOpen: (editor: Edit
         />
         <DropdownContent>
           {MENU.map((e, i) => (
-            <MenuItem key={e.id} index={i} icon={e.icon} label={e.id === "finder" ? "Show in Finder" : e.label} onSelect={() => void open(e.id)} />
+            <MenuItem key={e.id} index={i} icon={ICONS[e.id]} label={e.id === "finder" ? "Show in Finder" : e.label} checked={e.id === editor} onSelect={() => void open(e.id)} />
           ))}
           <DropdownSeparator />
           <MenuItem index={MENU.length} icon={Copy} label="Copy path" onSelect={() => void navigator.clipboard?.writeText(path)} />
