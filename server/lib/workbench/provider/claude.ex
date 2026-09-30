@@ -3,7 +3,7 @@ defmodule Workbench.Provider.Claude do
   Claude Code through the Node sidecar (`sidecar/`), which wraps the official
   Agent SDK and already emits our normalized events on stdout, one per line.
 
-  stdin ops: `start`, `send`, `interrupt`, `approve`, `set_mode`, `stop`.
+  stdin ops: `start`, `send`, `interrupt`, `approve`, `set_mode`, `set_model`, `models`, `usage`, `stop`.
   """
   @behaviour Workbench.Provider
 
@@ -72,6 +72,12 @@ defmodule Workbench.Provider.Claude do
   @impl true
   def list_models(%{io: io} = p) do
     Proc.write_json(io, %{op: "models"})
+    {:ok, p}
+  end
+
+  @impl true
+  def list_usage(%{io: io} = p) do
+    Proc.write_json(io, %{op: "usage"})
     {:ok, p}
   end
 

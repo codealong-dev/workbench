@@ -50,6 +50,9 @@ defmodule Workbench.Provider do
   @callback set_model(pstate(), model :: String.t() | nil, effort :: String.t() | nil) :: {:ok, pstate()}
   @doc "Ask for the models on offer; they arrive as a `models` event (see Workbench.Models)."
   @callback list_models(pstate()) :: {:ok, pstate()}
+  @doc "Ask for plan usage; it arrives as a `usage` event (see Workbench.Usage). Optional: providers without limits skip it."
+  @callback list_usage(pstate()) :: {:ok, pstate()}
+  @optional_callbacks list_usage: 1
   @callback handle_line(pstate(), line :: binary()) :: {[event()], pstate()}
   @callback close(pstate()) :: :ok
 

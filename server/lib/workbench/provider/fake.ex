@@ -50,6 +50,23 @@ defmodule Workbench.Provider.Fake do
     {:ok, p}
   end
 
+  @impl true
+  def list_usage(%{io: pid} = p) do
+    send(pid, :usage)
+    {:ok, p}
+  end
+
+  @doc false
+  def usage do
+    %{
+      "plan" => "max",
+      "windows" => [
+        %{"id" => "five_hour", "label" => "Session (5h)", "used_pct" => 42.0, "resets_at" => nil},
+        %{"id" => "seven_day", "label" => "Weekly", "used_pct" => 18.0, "resets_at" => nil}
+      ]
+    }
+  end
+
   @doc false
   def models do
     efforts = for e <- ~w(low medium high), do: %{"value" => e, "description" => ""}
@@ -106,6 +123,10 @@ defmodule Workbench.Provider.Fake do
     receive do
       :models ->
         emit(st.server, %{"type" => "models", "models" => models()})
+        loop(st)
+
+      :usage ->
+        emit(st.server, %{"type" => "usage", "usage" => usage()})
         loop(st)
 
       {:send, text} ->

@@ -40,6 +40,26 @@ defmodule WorkbenchWeb.ChannelsTest do
     assert Threads.get(id).mode == "plan"
   end
 
+  test "usage: cached answer on ask, refresh starts the agent and is pushed to the channel", %{dir: dir} do
+    :persistent_term.erase({Workbench.Usage, "fake"})
+    {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
+    %{id: id} = create_thread(dir)
+    {:ok, _snap, chan} = subscribe_and_join(socket, "thread:" <> id, %{})
+
+    ref = push(chan, "usage", %{})
+    assert_reply ref, :ok, %{usage: nil}
+    refute_push "usage", _, 100
+
+    ref = push(chan, "usage", %{"refresh" => true})
+    assert_reply ref, :ok, %{usage: nil}
+    assert_push "usage", %{usage: %{"plan" => "max", "windows" => [%{"id" => "five_hour", "used_pct" => 42.0} | _]}}, 2_000
+
+    ref = push(chan, "usage", %{"refresh" => true})
+    assert_reply ref, :ok, %{usage: %{"plan" => "max"}}
+    refute_push "usage", _, 100
+    :persistent_term.erase({Workbench.Usage, "fake"})
+  end
+
   test "projects: add, branches, create a worktree thread, archive it", %{dir: dir} do
     repo = git_repo(dir)
     git!(repo, ["branch", "feature-x"])

@@ -244,6 +244,18 @@ defmodule Workbench.Threads.Server do
     end
   end
 
+  def handle_call({:usage, refresh?}, _from, st) do
+    provider = st.thread.provider
+    cached = with {usage, _at} <- Workbench.Usage.get(provider), do: usage
+
+    st =
+      if refresh? and Workbench.Usage.stale?(provider) and supports_usage?(st.provider),
+        do: request_usage(st),
+        else: st
+
+    {:reply, {:ok, cached}, st}
+  end
+
   def handle_call({:set_model, model, effort}, _from, st) do
     thread = st.thread |> Ecto.Changeset.change(model: model, effort: effort) |> Repo.update!()
     st = %{st | thread: thread}
@@ -389,6 +401,16 @@ defmodule Workbench.Threads.Server do
     reply = if models == [] and ev["error"], do: {:error, ev["error"]}, else: {:ok, models}
     for from <- st.model_waiters, do: GenServer.reply(from, reply)
     %{st | model_waiters: []}
+  end
+
+  # account-wide, not part of the conversation: cached and broadcast to every
+  # thread; a failed fetch keeps whatever was cached
+  defp emit(st, %{"type" => "usage"} = ev) do
+    if ev["error"],
+      do: Logger.debug(["usage unavailable: ", ev["error"]]),
+      else: Workbench.Usage.put(st.thread.provider, ev["usage"])
+
+    st
   end
 
   defp emit(st, %{"type" => "item.completed", "item" => item} = ev) do
@@ -608,6 +630,19 @@ defmodule Workbench.Threads.Server do
       |> set_status("error")
     else
       st
+    end
+  end
+
+  defp supports_usage?(provider), do: Code.ensure_loaded?(provider) and function_exported?(provider, :list_usage, 1)
+
+  defp request_usage(st) do
+    with {:ok, st} <- ensure_provider(st),
+         {:ok, p} <- st.provider.list_usage(st.pstate) do
+      touch(%{st | pstate: p})
+    else
+      {:error, reason} ->
+        Logger.debug(["could not start the agent for usage: ", inspect(reason)])
+        st
     end
   end
 

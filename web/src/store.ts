@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Approval, HostInfo, Item, LiveItem, Project, Snapshot, Status, Thread, ThreadEvent, ToolItem } from "./contracts";
+import type { Approval, HostInfo, Item, LiveItem, PlanUsage, Project, Snapshot, Status, Thread, ThreadEvent, ToolItem } from "./contracts";
 
 export interface ThreadState {
   thread: Thread;
@@ -17,6 +17,9 @@ interface Store {
   projects: Project[];
   threads: Thread[];
   byId: Record<string, ThreadState>;
+  /** Plan limits per provider; they belong to the account, not a thread. */
+  usage: Record<string, PlanUsage | null>;
+  setUsage: (provider: string, usage: PlanUsage | null) => void;
   setLobby: (projects: Project[], threads: Thread[]) => void;
   upsertProject: (project: Project) => void;
   removeThread: (id: string) => void;
@@ -33,6 +36,9 @@ export const useStore = create<Store>((set) => ({
   projects: [],
   threads: [],
   byId: {},
+  usage: {},
+
+  setUsage: (provider, usage) => set((s) => ({ usage: { ...s.usage, [provider]: usage } })),
 
   setLobby: (projects, threads) => set({ projects, threads }),
 

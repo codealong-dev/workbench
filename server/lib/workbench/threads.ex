@@ -169,6 +169,13 @@ defmodule Workbench.Threads do
   @doc "The provider's models (see Workbench.Models)."
   def models(id), do: call(id, :models)
 
+  @doc """
+  The provider's plan usage (see Workbench.Usage) as `{:ok, usage}`, from the
+  cache. With `refresh?` and a stale cache, also asks a running agent
+  (starting one if needed; no turn); the answer arrives on `Workbench.Usage`'s topic.
+  """
+  def usage(id, refresh?), do: call(id, {:usage, refresh?})
+
   @doc "Model and effort for the next responses; nil means the provider's default."
   def set_model(id, model, effort) when (is_binary(model) or is_nil(model)) and (is_binary(effort) or is_nil(effort)),
     do: call(id, {:set_model, model, effort})

@@ -12,6 +12,7 @@ import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { query, type EffortLevel, type PermissionMode, type Query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { toModels } from "./models.ts";
+import { toUsage } from "./usage.ts";
 import { Inbox } from "./inbox.ts";
 import { initialState, normalize, type Event } from "./normalize.ts";
 import { toQuestions, withAnswers } from "./questions.ts";
@@ -22,6 +23,7 @@ type Op =
   | { op: "start"; cwd?: string; resume?: string | null; model?: string | null; effort?: EffortLevel | null; mode?: PermissionMode }
   | { op: "set_model"; model?: string | null; effort?: EffortLevel | null }
   | { op: "models" }
+  | { op: "usage" }
   | { op: "send"; text: string }
   | { op: "interrupt" }
   | { op: "approve"; request_id: string; decision: Decision; answers?: Record<string, string[]> }
@@ -95,7 +97,10 @@ function start(op: Extract<Op, { op: "start" }>) {
 
 async function pump(q: Query) {
   try {
-    for await (const m of q) for (const e of normalize(st, m)) emit(e);
+    for await (const m of q) {
+      for (const e of normalize(st, m)) emit(e);
+      if (m.type === "result") void usage(); // the turn just spent some of the plan
+    }
     if (!stopping) {
       emit({ type: "error", message: "Claude session ended unexpectedly", fatal: true });
       process.exit(1);
@@ -104,6 +109,18 @@ async function pump(q: Query) {
     if (stopping) return;
     emit({ type: "error", message: `Claude SDK error: ${(err as Error)?.message ?? err}`, fatal: true });
     process.exit(1);
+  }
+}
+
+// Plan limits are account-wide, so the server caches the answer for every thread.
+async function usage() {
+  if (!q) return;
+  try {
+    const r = await q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true });
+    emit({ type: "usage", usage: toUsage(r) } as Event);
+  } catch (e) {
+    log("usage failed:", (e as Error)?.message ?? e);
+    emit({ type: "usage", usage: null, error: String((e as Error)?.message ?? e) } as Event);
   }
 }
 
@@ -160,6 +177,8 @@ async function handle(op: Op) {
         .supportedModels()
         .then((ms) => emit({ type: "models", models: toModels(ms) } as Event))
         .catch((e) => emit({ type: "models", models: [], error: String(e?.message ?? e) } as Event));
+    case "usage":
+      return usage();
     case "stop":
       return stop(0);
   }

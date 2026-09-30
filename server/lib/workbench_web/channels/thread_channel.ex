@@ -13,11 +13,12 @@ defmodule WorkbenchWeb.ThreadChannel do
     case Threads.ensure_started(id) do
       {:ok, _pid} ->
         Threads.subscribe(id)
+        Workbench.Usage.subscribe()
         snap = Threads.snapshot(id)
         # terminals belong to the root thread; its sessions share them
         owner = snap.thread.parent_id || id
         Phoenix.PubSub.subscribe(Workbench.PubSub, Workbench.Terminals.owner_topic(owner))
-        {:ok, snap, assign(socket, thread_id: id, terminal_owner: owner)}
+        {:ok, snap, assign(socket, thread_id: id, provider: snap.thread.provider, terminal_owner: owner)}
 
       {:error, :not_found} ->
         {:error, %{reason: "not_found"}}
@@ -49,6 +50,14 @@ defmodule WorkbenchWeb.ThreadChannel do
   def handle_in("models", _params, socket) do
     case Threads.models(socket.assigns.thread_id) do
       {:ok, models} -> {:reply, {:ok, %{models: models}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
+    end
+  end
+
+  # `usage` {refresh?} -> {usage} (null: none known or no limits); updates are pushed as `usage`
+  def handle_in("usage", params, socket) do
+    case Threads.usage(socket.assigns.thread_id, params["refresh"] == true) do
+      {:ok, usage} -> {:reply, {:ok, %{usage: usage}}, socket}
       {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
     end
   end
@@ -139,6 +148,13 @@ defmodule WorkbenchWeb.ThreadChannel do
     push(socket, "event", env)
     {:noreply, socket}
   end
+
+  def handle_info({:usage, provider, usage}, %{assigns: %{provider: provider}} = socket) do
+    push(socket, "usage", %{usage: usage})
+    {:noreply, socket}
+  end
+
+  def handle_info({:usage, _other_provider, _usage}, socket), do: {:noreply, socket}
 
   def handle_info({:terminals_changed, owner}, socket) do
     push(socket, "terminals", %{terminals: Workbench.Terminals.list(owner)})
