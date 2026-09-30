@@ -419,12 +419,14 @@ interface TabItemProps
   icon?: IconComponent;
   /** Text label. */
   label: string;
+  /** Hide the text, keeping it as the accessible name and tooltip. */
+  iconOnly?: boolean;
   /** @internal Auto-assigned by TabsList. */
   _index?: number;
 }
 
 const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
-  ({ value, icon: Icon, label, _index = 0, className, onClick, ...props }, ref) => {
+  ({ value, icon: Icon, label, iconOnly, _index = 0, className, onClick, ...props }, ref) => {
     const internalRef = useRef<HTMLButtonElement>(null);
     const sizeClasses = useSize();
     const { registerTab, hoveredIndex, selectedValue, setOptimisticIdx } = useTabsList();
@@ -457,6 +459,7 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
         }}
         value={value}
         data-fluid-hover-index={_index}
+        {...(iconOnly ? { "aria-label": label, title: label } : {})}
         className={cn(
           // Fixed height (not py) so the text-box trim below doesn't shrink
           // the tab — browsers without text-box support render identically.
@@ -479,7 +482,7 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
         )}
         {/* Both stacked spans carry the text-box trim so the invisible bold
             sizer and the visible label keep identical boxes. */}
-        <span className={cn("inline-grid whitespace-nowrap", sizeClasses.text)}>
+        <span className={cn("inline-grid whitespace-nowrap", sizeClasses.text, iconOnly && "hidden")}>
           <span
             className="col-start-1 row-start-1 invisible [text-box:trim-both_cap_alphabetic]"
             style={{ fontVariationSettings: fontWeights.semibold }}
