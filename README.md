@@ -19,6 +19,7 @@ A local-first workbench for running coding agents in parallel. A Phoenix app run
 | M7 remote machine | Done: `WB_BIND`/`WB_ORIGINS`, one-time login link for other machines, SSH "Open in", Push + Open PR. See [docs/remote.md](docs/remote.md) |
 | M8 several machines | Next: one UI, threads on several nodes over Tailscale |
 | M9 Codex | Done: `codex app-server` over JSON-RPC from Elixir; streaming, approvals (commands, file patches, permissions), interrupt, resume, modes |
+| File tree + changes panel | Done: right panel with Files (worktree tree) and Changes tabs, diff/file tabs in a middle pane, +a −d pill opens the diff |
 | Sidebar + sessions | Done: Fluid Functionalism sidebar (inset, no icon rail, hover-peek, `[` toggles, drag to resize), search (⌘K), per-project filter, several Claude/Codex sessions per worktree as a tree, theme toggle |
 | M10 polish | Next |
 
@@ -38,7 +39,7 @@ make dev       # Phoenix :4000 + Vite :5173; open http://127.0.0.1:5173
 
 Add a project (any local git repo), then press **N** or **+** for a new thread. Each thread gets its own worktree at `~/.workbench/worktrees/<project>/<slug>` on branch `wb/<slug>`, cut from the base branch you pick. Pick **Claude Code**, or **Fake** to work on the UI without spending tokens.
 
-**Changes** in the thread header shows the diff against the thread's base (merge base with the branch it was cut from, so commits and uncommitted edits both count; in-repo threads diff against HEAD). It refreshes whenever the agent finishes a turn. **Open in** opens the worktree in Zed, VS Code, Cursor or Finder, using the editor's CLI if it's on PATH or `open -a` otherwise; the icon on each file in the diff opens that file.
+**Files and changes.** The panel on the right (toggle it with the icon at the far right of the thread header) has two tabs. **Files** is the worktree's file tree (what git tracks plus new files, minus ignored ones), with changed files coloured and a filter; click a file to read it. **Changes** lists what changed against the thread's base (merge base with the branch it was cut from, so commits and uncommitted edits both count; in-repo threads diff against HEAD), grouped by folder or as a tree, with **Push** (`git push -u origin <branch>`, plus an Open PR link). The **+a −d** pill in the header opens the full diff (unified or split). Diffs and open files sit in tabs in the middle pane and refresh when the agent finishes a turn. **Open in** opens the worktree in Zed, VS Code, Cursor or Finder, using the editor's CLI if it's on PATH or `open -a` otherwise; the ↗ icon on a file opens that file.
 
 **Sessions.** A thread's **⋮** menu adds another Claude or Codex session to the same worktree and branch (no new worktree, no setup), so you can get a second opinion or split work between agents on one branch. Sessions show nested under their thread. The number on a row is how many messages you've sent. **Branch thread** (the ↳ icon) is a placeholder for now.
 

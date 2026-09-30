@@ -1,23 +1,33 @@
-import { useCallback, useState } from "react";
-import { Archive, Cpu, FileDiff as FileDiffIcon, FolderGit2, GitBranch } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Archive, Cpu, FolderGit2, GitBranch, GitCompareArrows, PanelRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InputMessage, type QueuedMessage } from "@/components/ui/input-message";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { push, useThreadChannel } from "@/hooks/use-channels";
 import { fetchFilePatch, useDiff } from "@/hooks/use-diff";
-import { cn } from "@/lib/utils";
+import { useFiles } from "@/hooks/use-files";
+import { Tooltip } from "@/components/ui/tooltip";
 import { useStore } from "@/store";
 import type { Decision, Editor, PushResult, Thread } from "@/contracts";
 import { isRemote, remoteEditorUrl } from "@/lib/remote";
 import { Timeline } from "./timeline";
 import { StatusDot } from "./status-dot";
 import { MODES } from "./modes";
-import { ChangesPanel, Counts } from "./changes-panel";
+import { Counts } from "./diff-view";
+import { SidePanel, type PanelTab } from "./side-panel";
+import { Viewer, tabKey, type ViewerTab } from "./viewer";
 import { OpenMenu, preferredEditor } from "./open-menu";
 import { ArchiveDialog } from "./archive-dialog";
 import { InsetTrigger, threadLabel } from "./sidebar";
 
-const CHANGES_KEY = "wb.changesOpen";
+const PANEL_KEY = "wb.panel";
+
+const readPanel = (): PanelTab | null => {
+  const v = localStorage.getItem(PANEL_KEY);
+  if (v === "files" || v === "changes") return v;
+  // first run: open on wide screens
+  return v === null && window.innerWidth >= 1280 ? "changes" : null;
+};
 const AGENT_NAMES: Record<string, string> = { claude: "Claude", codex: "Codex", fake: "the fake agent" };
 
 function ArchiveButton({ thread, onArchive }: { thread: Thread; onArchive: () => Promise<void> }) {
@@ -34,13 +44,46 @@ function ArchiveButton({ thread, onArchive }: { thread: Thread; onArchive: () =>
 
 export function ThreadView({ id }: { id: string }) {
   const { channel, joinError } = useThreadChannel(id);
-  const [changesOpen, setChangesOpen] = useState(() => localStorage.getItem(CHANGES_KEY) === "1");
-  const toggleChanges = (open: boolean) => {
-    setChangesOpen(open);
-    localStorage.setItem(CHANGES_KEY, open ? "1" : "0");
+  // right panel: which tab, or null when hidden
+  const [panel, setPanelState] = useState<PanelTab | null>(readPanel);
+  const [panelTab, setPanelTab] = useState<PanelTab>(() => readPanel() ?? "changes");
+  const setPanel = (tab: PanelTab | null) => {
+    setPanelState(tab);
+    if (tab) setPanelTab(tab);
+    localStorage.setItem(PANEL_KEY, tab ?? "off");
   };
+
+  // middle pane: the diff and opened files, as tabs
+  const [tabs, setTabs] = useState<ViewerTab[]>([]);
+  const [activeTab, setActiveTab] = useState<string>("diff");
+  const [focus, setFocus] = useState<{ path: string; n: number } | null>(null);
+  const openTab = (tab: ViewerTab) => {
+    const key = tabKey(tab);
+    setTabs((ts) => (ts.some((t) => tabKey(t) === key) ? ts : tab.kind === "diff" ? [tab, ...ts] : [...ts, tab]));
+    setActiveTab(key);
+  };
+  const closeTab = (key: string) => {
+    setTabs((ts) => {
+      const i = ts.findIndex((t) => tabKey(t) === key);
+      const next = ts.filter((t) => tabKey(t) !== key);
+      if (key === activeTab && next.length) setActiveTab(tabKey(next[Math.max(0, i - 1)]));
+      return next;
+    });
+  };
+  const viewerOpen = tabs.length > 0;
+  const diffShown = viewerOpen && activeTab === "diff";
+
   const threadStatus = useStore((s) => s.byId[id]?.status);
-  const { diff, error: diffError, loading: diffLoading, refresh: refreshDiff } = useDiff(channel, threadStatus, changesOpen);
+  const { diff, error: diffError, loading: diffLoading, refresh: refreshDiff } = useDiff(channel, threadStatus, diffShown);
+  const files = useFiles(channel, threadStatus, panel === "files");
+
+  // open files re-read when the agent finishes a turn
+  const [version, setVersion] = useState(0);
+  const prevStatus = useRef(threadStatus);
+  useEffect(() => {
+    if (prevStatus.current && prevStatus.current !== "idle" && threadStatus === "idle") setVersion((v) => v + 1);
+    prevStatus.current = threadStatus;
+  }, [threadStatus]);
 
   const host = useStore((s) => s.host);
   const worktree = useStore((s) => s.byId[id]?.thread.worktree_path);
@@ -139,29 +182,39 @@ export function ThreadView({ id }: { id: string }) {
               </SelectContent>
             </Select>
           </div>
-          <Button
-            size="compact"
-            variant={changesOpen ? "secondary" : "ghost"}
-            leadingIcon={FileDiffIcon}
-            onClick={() => toggleChanges(!changesOpen)}
-            title="Changes against the base branch"
-          >
-            {diff && diff.files.length > 0 ? (
-              <Counts
-                additions={diff.files.reduce((a, f) => a + f.additions, 0)}
-                deletions={diff.files.reduce((a, f) => a + f.deletions, 0)}
-              />
-            ) : (
-              "Changes"
-            )}
-          </Button>
+          <Tooltip content={diffShown ? "Hide changes" : "Show changes against the base branch"} side="bottom">
+            <Button
+              size="compact"
+              variant={diffShown ? "secondary" : "ghost"}
+              leadingIcon={GitCompareArrows}
+              aria-label="Changes"
+              onClick={() => (diffShown ? closeTab("diff") : openTab({ kind: "diff" }))}
+            >
+              {diff && diff.files.length > 0 ? (
+                <Counts additions={diff.files.reduce((a, f) => a + f.additions, 0)} deletions={diff.files.reduce((a, f) => a + f.deletions, 0)} />
+              ) : (
+                <span className="text-muted-foreground">No changes</span>
+              )}
+            </Button>
+          </Tooltip>
           <OpenMenu path={thread.worktree_path} onOpen={(editor) => openIn(editor)} />
           <ArchiveButton thread={thread} onArchive={async () => void (await push(channel.current, "archive"))} />
+          <Tooltip content={panel ? "Hide files and changes" : "Show files and changes"} side="bottom">
+            <Button
+              size="icon-compact"
+              variant={panel ? "secondary" : "ghost"}
+              aria-label="Toggle files panel"
+              aria-pressed={!!panel}
+              onClick={() => setPanel(panel ? null : panelTab)}
+            >
+              <PanelRight />
+            </Button>
+          </Tooltip>
         </div>
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <div className={cn("flex min-w-0 flex-1 flex-col")}>
+        <div className="flex min-w-[340px] flex-1 flex-col">
           <Timeline items={ts.items} live={ts.live} pending={ts.pending} status={status} onDecide={decide} />
 
           <div className="mx-auto w-full max-w-3xl px-6 pb-5">
@@ -181,19 +234,43 @@ export function ThreadView({ id }: { id: string }) {
           </div>
         </div>
 
-        {changesOpen && (
-          <ChangesPanel
+        {viewerOpen && (
+          <Viewer
+            tabs={tabs}
+            active={activeTab}
+            onActivate={setActiveTab}
+            onClose={closeTab}
+            channel={channel.current}
+            version={version}
             diff={diff}
-            error={diffError}
-            loading={diffLoading}
-            onRefresh={() => void refreshDiff()}
-            onClose={() => toggleChanges(false)}
-            onOpenFile={(path) => void openIn(preferredEditor(), path)}
+            diffError={diffError}
+            focus={focus}
+            loadPatch={(path) => fetchFilePatch(channel.current, path)}
+            onOpenInEditor={(path) => void openIn(preferredEditor(), path)}
+          />
+        )}
+
+        {panel && (
+          <SidePanel
+            tab={panel}
+            onTab={setPanel}
+            files={files}
+            diff={diff}
+            diffError={diffError}
+            diffLoading={diffLoading}
+            onRefreshDiff={() => void refreshDiff()}
+            openFile={viewerOpen && activeTab.startsWith("f:") ? activeTab.slice(2) : null}
+            focusedChange={diffShown ? (focus?.path ?? null) : null}
+            onOpenFile={(path) => openTab({ kind: "file", path })}
+            onOpenChange={(path) => {
+              openTab({ kind: "diff" });
+              setFocus((f) => ({ path, n: (f?.n ?? 0) + 1 }));
+            }}
+            onOpenInEditor={(path) => void openIn(preferredEditor(), path)}
             onPush={async () => {
               const r = await push(channel.current, "push");
               return r.ok ? { ok: true, result: r.payload as PushResult } : { ok: false, error: r.reason };
             }}
-            loadFile={(path) => fetchFilePatch(channel.current, path)}
           />
         )}
       </div>

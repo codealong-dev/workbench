@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 // System / light / dark, pinned as a class on <html> so both FF's tokens
 // (color-scheme) and Tailwind's class-based `dark:` variant follow it.
 export type Theme = "system" | "light" | "dark";
@@ -40,4 +42,17 @@ export function watchSystemTheme() {
   const onChange = () => getTheme() === "system" && applyTheme("system");
   m.addEventListener("change", onChange);
   return () => m.removeEventListener("change", onChange);
+}
+
+
+const isDark = () => document.documentElement.classList.contains("dark");
+const subscribe = (cb: () => void) => {
+  const o = new MutationObserver(cb);
+  o.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+  return () => o.disconnect();
+};
+
+/** "light" | "dark" as currently applied (for renderers that take an explicit theme, like code views). */
+export function useResolvedTheme(): "light" | "dark" {
+  return useSyncExternalStore(subscribe, () => (isDark() ? "dark" : "light"));
 }

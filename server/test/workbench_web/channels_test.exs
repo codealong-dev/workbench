@@ -74,6 +74,22 @@ defmodule WorkbenchWeb.ChannelsTest do
     assert_push "thread.archived", %{id: ^tid}, 5_000
   end
 
+  test "thread channel: files and file", %{dir: dir} do
+    File.write!(Path.join(dir, "x.md"), "# hi\n")
+    {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
+    {:ok, _, lobby} = subscribe_and_join(socket, "lobby", %{})
+    ref = push(lobby, "thread.create", %{"provider" => "fake", "cwd" => dir})
+    assert_reply ref, :ok, %{thread: %{id: tid}}
+    {:ok, _snap, chan} = subscribe_and_join(socket, "thread:" <> tid, %{})
+
+    ref = push(chan, "files", %{})
+    assert_reply ref, :ok, %{files: ["x.md"], truncated: false}
+    ref = push(chan, "file", %{"path" => "x.md"})
+    assert_reply ref, :ok, %{content: "# hi\n", binary: false}
+    ref = push(chan, "file", %{"path" => "../x"})
+    assert_reply ref, :error, %{reason: "path is outside the worktree"}
+  end
+
   test "joining an unknown thread fails" do
     {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
     assert {:error, %{reason: "not_found"}} = subscribe_and_join(socket, "thread:" <> Ecto.UUID.generate(), %{})

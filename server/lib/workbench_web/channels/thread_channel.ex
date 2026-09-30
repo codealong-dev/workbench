@@ -53,6 +53,15 @@ defmodule WorkbenchWeb.ThreadChannel do
     end
   end
 
+  # The worktree's files (tracked + untracked, not ignored), and one file's text.
+  def handle_in("files", _params, socket) do
+    with_thread(socket, &Workbench.Files.list(&1.worktree_path))
+  end
+
+  def handle_in("file", %{"path" => path}, socket) when is_binary(path) do
+    with_thread(socket, &Workbench.Files.read(&1.worktree_path, path))
+  end
+
   def handle_in("open_editor", %{"editor" => editor} = params, socket) do
     case Threads.get(socket.assigns.thread_id) do
       nil -> {:reply, {:error, %{reason: "not_found"}}, socket}
@@ -87,6 +96,16 @@ defmodule WorkbenchWeb.ThreadChannel do
   def handle_info({:events, batch}, socket) do
     push(socket, "event", %{batch: batch})
     {:noreply, socket}
+  end
+
+  defp with_thread(socket, fun) do
+    with %{} = thread <- Threads.get(socket.assigns.thread_id),
+         {:ok, reply} <- fun.(thread) do
+      {:reply, {:ok, reply}, socket}
+    else
+      nil -> {:reply, {:error, %{reason: "not_found"}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
+    end
   end
 
   defp result(:ok, socket), do: {:reply, :ok, socket}

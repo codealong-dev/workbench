@@ -119,3 +119,18 @@ export interface PushResult {
   output: string;
   pr_url: string | null;
 }
+
+export interface FileList {
+  files: string[];
+  truncated: boolean;
+}
+
+export interface FileContent {
+  path: string;
+  /** null for binary files */
+  content: string | null;
+  size: number;
+  binary: boolean;
+  /** cut at 1MB */
+  truncated: boolean;
+}
