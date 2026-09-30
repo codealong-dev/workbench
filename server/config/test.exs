@@ -16,3 +16,6 @@ config :workbench, token: "test-token", flush_ms: 5, migrate_on_boot: false, log
 
 config :logger, level: :warning
 config :phoenix, :plug_init_mode, :runtime
+
+# no inotify-tools in CI containers: poll, quickly
+config :workbench, watch_opts: [backend: :fs_poll, interval: 100]

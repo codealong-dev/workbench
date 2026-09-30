@@ -18,6 +18,8 @@ defmodule WorkbenchWeb.ThreadChannel do
         # terminals belong to the root thread; its sessions share them
         owner = snap.thread.parent_id || id
         Phoenix.PubSub.subscribe(Workbench.PubSub, Workbench.Terminals.owner_topic(owner))
+        # tell editors when files change on disk (agents, terminals, other editors)
+        Workbench.Watcher.subscribe(snap.thread.worktree_path)
         {:ok, snap, assign(socket, thread_id: id, provider: snap.thread.provider, terminal_owner: owner)}
 
       {:error, :not_found} ->
@@ -88,6 +90,25 @@ defmodule WorkbenchWeb.ThreadChannel do
 
   def handle_in("file", %{"path" => path}, socket) when is_binary(path) do
     with_thread(socket, &Workbench.Files.read(&1.worktree_path, path))
+  end
+
+  # Save from the editor. `base_hash` (from `file`) refuses the write if the
+  # file changed meanwhile: error `{reason: "conflict", content, hash}`.
+  def handle_in("file.write", %{"path" => path, "content" => content} = params, socket) when is_binary(path) and is_binary(content) do
+    with %{} = thread <- Threads.get(socket.assigns.thread_id) do
+      case Workbench.Files.write(thread.worktree_path, path, content, params["base_hash"]) do
+        {:ok, saved} -> {:reply, {:ok, saved}, socket}
+        {:error, {:conflict, now}} -> {:reply, {:error, Map.put(now, :reason, "conflict")}, socket}
+        {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
+      end
+    else
+      nil -> {:reply, {:error, %{reason: "not_found"}}, socket}
+    end
+  end
+
+  # The file as it is in the thread's base, for an editable diff.
+  def handle_in("file.base", %{"path" => path} = params, socket) when is_binary(path) do
+    with_thread(socket, &Workbench.Review.base_content(&1, path, params["from"]))
   end
 
   # Terminals in the worktree: `terminals` -> {terminals}, `terminal.create`
@@ -164,6 +185,11 @@ defmodule WorkbenchWeb.ThreadChannel do
   end
 
   def handle_info({:usage, _other_provider, _usage}, socket), do: {:noreply, socket}
+
+  def handle_info({:files_changed, _root, paths}, socket) do
+    push(socket, "files.changed", %{paths: paths})
+    {:noreply, socket}
+  end
 
   def handle_info({:terminals_changed, owner}, socket) do
     push(socket, "terminals", %{terminals: Workbench.Terminals.list(owner)})

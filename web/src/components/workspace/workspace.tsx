@@ -25,6 +25,7 @@ import { PANEL_COMPONENTS, WorkspaceContext, bufferId, type Buffer, type OpenOpt
 import { BufferTab, NewBufferMenu } from "./tabs";
 import { StatusBar } from "./status-bar";
 import { applyLayout, fetchLayout, saveLayout } from "./layout";
+import { editorKey, useEditors } from "@/lib/editor-state";
 
 const theme: DockviewTheme = {
   name: "workbench",
@@ -115,7 +116,28 @@ export function WorkspaceView({
     if (wasBusy.current && !busy) setVersion((v) => v + 1);
     wasBusy.current = busy;
   }, [busy]);
-  const [focus, setFocus] = useState<{ path: string; n: number } | null>(null);
+  // files changed on disk (the server watches the worktree): editors reload,
+  // the diff and the file list refresh (debounced while an agent is busy writing)
+  const listeners = useRef(new Set<(paths: string[]) => void>());
+  const onFilesChanged = useCallback((cb: (paths: string[]) => void) => {
+    listeners.current.add(cb);
+    return () => void listeners.current.delete(cb);
+  }, []);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const ch = channel.current;
+    if (!ch) return;
+    const ref = ch.on("files.changed", ({ paths }: { paths: string[] }) => {
+      listeners.current.forEach((l) => l(paths));
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+      refreshTimer.current = setTimeout(() => {
+        void refreshDiff();
+        if (files.list) void files.refresh();
+      }, 700);
+    });
+    return () => ch.off("files.changed", ref);
+  }, [channel, refreshDiff, files.list, files.refresh]);
+  const [focus] = useState<{ path: string; n: number } | null>(null);
   const [activeChange, setActiveChange] = useState<string | null>(null);
   const [activeBuffer, setActiveBuffer] = useState<Buffer | null>(null);
 
@@ -143,28 +165,35 @@ export function WorkspaceView({
       const id = bufferId(b);
       const existing = api.getPanel(id);
       if (existing) {
+        // opening it for keeps pins a preview
+        if (!o.preview && (existing.params as { preview?: boolean }).preview) existing.api.updateParameters({ ...existing.params, preview: false });
         if (!o.background) existing.api.setActive();
         return;
       }
       const group = api.activeGroup;
+      const previewable = o.preview && (b.kind === "file" || b.kind === "diff");
+      // a new preview takes the place of the old one (unless it has unsaved edits)
+      let index: number | undefined;
+      if (previewable && group) {
+        const old = group.panels.find((p) => (p.params as { preview?: boolean }).preview);
+        const oldBuf = old?.params as Buffer | undefined;
+        const oldDirty = oldBuf && (oldBuf.kind === "file" || oldBuf.kind === "diff") && useEditors.getState().dirty[editorKey(rootId, oldBuf.path)];
+        if (old && !oldDirty) {
+          index = group.panels.indexOf(old);
+          old.api.close();
+        }
+      }
       api.addPanel({
         id,
         component: b.kind,
         tabComponent: "buffer",
-        params: b,
+        params: previewable ? { ...b, preview: true } : b,
         renderer: rendererOf(b),
         inactive: o.background,
-        ...(group
-          ? {
-              position: {
-                referenceGroup: group,
-                direction: o.direction ?? "within",
-              },
-            }
-          : {}),
+        ...(group ? { position: { referenceGroup: group, direction: o.direction ?? "within", ...(index !== undefined ? { index } : {}) } } : {}),
       });
     },
-    [api],
+    [api, rootId],
   );
 
   const newChat = useCallback(
@@ -301,6 +330,7 @@ export function WorkspaceView({
     newChat,
     newTerminal,
     quickOpen: () => setQuickOpen(true),
+    onFilesChanged,
   };
 
   if (joinError) return <div className="grid flex-1 place-items-center text-[13px] text-destructive">Could not open thread: {joinError}</div>;
@@ -337,11 +367,11 @@ export function WorkspaceView({
               diffLoading={diffLoading}
               onRefreshDiff={() => void refreshDiff()}
               openFile={activeBuffer?.kind === "file" ? activeBuffer.path : null}
-              focusedChange={activeBuffer?.kind === "changes" ? (activeChange ?? focus?.path ?? null) : null}
-              onOpenFile={(path) => open({ kind: "file", path })}
-              onOpenChange={(path) => {
-                open({ kind: "changes" });
-                setFocus((f) => ({ path, n: (f?.n ?? 0) + 1 }));
+              focusedChange={activeBuffer?.kind === "diff" ? activeBuffer.path : activeBuffer?.kind === "changes" ? (activeChange ?? focus?.path ?? null) : null}
+              onOpenFile={(path, pin) => open({ kind: "file", path }, { preview: !pin })}
+              onOpenChange={(path, pin) => {
+                const from = diff?.files.find((f) => f.path === path)?.old_path ?? undefined;
+                open({ kind: "diff", path, ...(from ? { from } : {}) }, { preview: !pin });
               }}
               onOpenInEditor={(path) => void openIn(preferredEditor(), path)}
               onPush={onPush}

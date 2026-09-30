@@ -90,7 +90,7 @@ function FilesTab(props: {
   onRefresh: () => void;
   changes: Map<string, DiffFile>;
   selected: string | null;
-  onOpen: (path: string) => void;
+  onOpen: (path: string, pin?: boolean) => void;
   onOpenInEditor: (path: string) => void;
 }) {
   const { list, error, loading, onRefresh, changes, selected, onOpen, onOpenInEditor } = props;
@@ -195,6 +195,7 @@ function FilesTab(props: {
               });
             else onOpen(row.path);
           }}
+          onDoubleActivate={(row) => row.kind === "file" && onOpen(row.path, true)}
         />
         {list?.truncated && <div className="px-2 py-2 text-[11px] text-muted-foreground">Showing the first {list.files.length.toLocaleString()} files.</div>}
       </div>
@@ -210,7 +211,7 @@ function ChangesTab(props: {
   loading: boolean;
   onRefresh: () => void;
   selected: string | null;
-  onOpen: (path: string) => void;
+  onOpen: (path: string, pin?: boolean) => void;
   onOpenInEditor: (path: string) => void;
   onPush: () => Promise<PushOutcome>;
 }) {
@@ -373,6 +374,7 @@ function ChangesTab(props: {
                 return n;
               });
           }}
+          onDoubleActivate={(row) => row.kind === "file" && onOpen(row.path, true)}
         />
       </div>
     </>
@@ -391,8 +393,8 @@ export function SidePanel(props: {
   onRefreshDiff: () => void;
   openFile: string | null;
   focusedChange: string | null;
-  onOpenFile: (path: string) => void;
-  onOpenChange: (path: string) => void;
+  onOpenFile: (path: string, pin?: boolean) => void;
+  onOpenChange: (path: string, pin?: boolean) => void;
   onOpenInEditor: (path: string) => void;
   onPush: () => Promise<PushOutcome>;
 }) {

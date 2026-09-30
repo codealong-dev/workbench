@@ -259,7 +259,9 @@ const SidebarProvider = forwardRef<HTMLDivElement, SidebarProviderProps>(
           target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
           target.tagName === "SELECT" ||
-          target.isContentEditable
+          target.isContentEditable ||
+          // Workbench: Monaco (EditContext, no textarea) and xterm take keys too
+          !!target.closest?.(".monaco-editor, .xterm")
         )
           return;
         // Only one mounted provider answers (see mountedProviders). Providers

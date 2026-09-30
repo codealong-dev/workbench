@@ -72,7 +72,9 @@ defmodule Workbench.Files do
          content: if(binary, do: nil, else: bytes),
          size: size,
          binary: binary,
-         truncated: size > @max_bytes
+         truncated: size > @max_bytes,
+         # what the editor sends back on save, to catch changes made meanwhile
+         hash: if(size <= @max_bytes, do: hash(bytes))
        }}
     else
       {:ok, %File.Stat{}} -> {:error, "#{rel} is not a file"}
@@ -81,6 +83,39 @@ defmodule Workbench.Files do
       {:error, _} = err -> err
     end
   end
+
+  @doc """
+  Write `content` to `rel` in the worktree. With `base_hash` (from `read/2`)
+  the write is refused if the file changed since: `{:error, {:conflict,
+  %{content, hash}}}` with what is on disk now. `base_hash: nil` writes
+  regardless (a new file, or "overwrite").
+  """
+  def write(root, rel, content, base_hash) when is_binary(rel) and is_binary(content) do
+    with {:ok, safe} <- safe_path(root, rel),
+         full = Path.join(root, safe),
+         :ok <- File.mkdir_p(Path.dirname(full)),
+         :ok <- inside(root, full),
+         :ok <- unchanged(full, base_hash),
+         :ok <- File.write(full, content) do
+      {:ok, %{path: safe, hash: hash(content), size: byte_size(content)}}
+    else
+      {:error, {:conflict, _}} = conflict -> conflict
+      {:error, reason} when is_atom(reason) -> {:error, "#{rel}: #{:file.format_error(reason)}"}
+      {:error, _} = err -> err
+    end
+  end
+
+  defp unchanged(_full, nil), do: :ok
+
+  defp unchanged(full, base_hash) do
+    case File.read(full) do
+      {:ok, now} -> if hash(now) == base_hash, do: :ok, else: {:error, {:conflict, %{content: now, hash: hash(now)}}}
+      {:error, :enoent} -> {:error, {:conflict, %{content: nil, hash: nil}}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def hash(bytes), do: :crypto.hash(:sha256, bytes) |> Base.encode16(case: :lower) |> binary_part(0, 16)
 
   defp safe_path(root, rel) do
     case Path.safe_relative(rel, root) do

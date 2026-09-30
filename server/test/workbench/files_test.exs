@@ -48,4 +48,43 @@ defmodule Workbench.FilesTest do
     assert {:ok, %{truncated: true, size: 1_200_000, content: c}} = Files.read(dir, "big.txt")
     assert byte_size(c) == 1_000_000
   end
+
+  test "write: saves, refuses when the file changed since it was read, overwrite with nil", %{dir: dir} do
+    File.write!(Path.join(dir, "a.txt"), "one\n")
+    {:ok, %{hash: h1}} = Files.read(dir, "a.txt")
+    assert {:ok, %{hash: h2, size: 4}} = Files.write(dir, "a.txt", "two\n", h1)
+    assert File.read!(Path.join(dir, "a.txt")) == "two\n"
+
+    # an agent edits it meanwhile
+    File.write!(Path.join(dir, "a.txt"), "agent\n")
+    assert {:error, {:conflict, %{content: "agent\n", hash: h3}}} = Files.write(dir, "a.txt", "mine\n", h2)
+    assert File.read!(Path.join(dir, "a.txt")) == "agent\n"
+    assert {:ok, _} = Files.write(dir, "a.txt", "mine\n", h3)
+    assert {:ok, _} = Files.write(dir, "new/dir/b.txt", "b", nil)
+    assert File.read!(Path.join(dir, "new/dir/b.txt")) == "b"
+    assert {:error, "path is outside the worktree"} = Files.write(dir, "../x", "x", nil)
+  end
+
+  test "base content: the file at the merge base; new files are empty", %{dir: dir} do
+    repo = git_repo(dir)
+    git!(repo, ["checkout", "-q", "-b", "feature"])
+    File.write!(Path.join(repo, "README.md"), "changed\n")
+    File.write!(Path.join(repo, "new.txt"), "n\n")
+    t = %Workbench.Threads.Thread{worktree_path: repo, base_ref: "main"}
+    assert {:ok, %{content: base, exists: true, base: "main"}} = Workbench.Review.base_content(t, "README.md")
+    assert base == git!(repo, ["show", "main:README.md"]) <> "\n" or base =~ "repo"
+    assert {:ok, %{content: "", exists: false}} = Workbench.Review.base_content(t, "new.txt")
+    assert {:error, _} = Workbench.Review.base_content(t, "../etc/passwd")
+  end
+
+  test "watcher: subscribers hear about changed files, not ignored ones", %{dir: dir} do
+    File.mkdir_p!(Path.join(dir, "node_modules"))
+    :ok = Workbench.Watcher.subscribe(dir)
+    Process.sleep(250)
+    File.write!(Path.join(dir, "node_modules/x.js"), "x")
+    File.write!(Path.join(dir, "watched.txt"), "hi")
+    assert_receive {:files_changed, ^dir, paths}, 3_000
+    assert "watched.txt" in paths
+    refute Enum.any?(paths, &String.starts_with?(&1, "node_modules"))
+  end
 end

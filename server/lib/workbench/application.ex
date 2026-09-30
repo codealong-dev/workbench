@@ -15,6 +15,8 @@ defmodule Workbench.Application do
       {DynamicSupervisor, name: Workbench.Threads.Supervisor, strategy: :one_for_one},
       {Registry, keys: :unique, name: Workbench.Terminals.Registry},
       {DynamicSupervisor, name: Workbench.Terminals.Supervisor, strategy: :one_for_one},
+      {Registry, keys: :unique, name: Workbench.Watcher.Registry},
+      {DynamicSupervisor, name: Workbench.Watcher.Supervisor, strategy: :one_for_one},
       WorkbenchWeb.Endpoint
     ]
 

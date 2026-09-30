@@ -96,6 +96,33 @@ defmodule Workbench.Review do
   defp label(%Thread{base_ref: nil}), do: "HEAD"
   defp label(%Thread{base_ref: base}), do: base
 
+  @doc """
+  A file as it is in the thread's base (the merge base, or HEAD for in-repo
+  threads): the left side of an editable diff. `from` is the old path of a
+  rename. A file that isn't in the base comes back empty.
+  """
+  def base_content(%Thread{worktree_path: wt} = t, path, from \\ nil) when is_binary(path) do
+    with {:ok, [rev]} <- range(t),
+         rel when is_binary(rel) <- safe_rel(from || path) do
+      with {:ok, _} <- Git.run(wt, ["cat-file", "-e", "#{rev}:#{rel}"]),
+           {content, 0} <- Git.cmd(wt, ["show", "#{rev}:#{rel}"]) do
+        {:ok, %{path: path, content: content, exists: true, base: label(t)}}
+      else
+        _ -> {:ok, %{path: path, content: "", exists: false, base: label(t)}}
+      end
+    else
+      nil -> {:error, "path is outside the worktree"}
+      {:error, _} = err -> err
+    end
+  end
+
+  defp safe_rel(path) do
+    case Path.safe_relative(path) do
+      {:ok, rel} when rel not in ["", "."] -> rel
+      _ -> nil
+    end
+  end
+
   # The arguments that select what to compare against the working tree.
   defp range(%Thread{base_ref: nil}), do: {:ok, ["HEAD"]}
 

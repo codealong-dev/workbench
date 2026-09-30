@@ -32,7 +32,8 @@ defmodule Workbench.MixProject do
       {:jason, "~> 1.4"},
       {:ecto_sql, "~> 3.13"},
       {:ecto_sqlite3, "~> 0.22"},
-      {:erlexec, "~> 2.2"}
+      {:erlexec, "~> 2.2"},
+      {:file_system, "~> 1.1"}
     ]
   end
 

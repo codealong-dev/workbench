@@ -35,8 +35,9 @@ const RowView = memo(function RowView(props: {
   selected: boolean;
   register: (index: number, el: HTMLElement | null) => void;
   onActivate: (row: Row) => void;
+  onDoubleActivate?: (row: Row) => void;
 }) {
-  const { row, index, selected, register, onActivate } = props;
+  const { row, index, selected, register, onActivate, onDoubleActivate } = props;
   const ref = useRef<HTMLDivElement>(null);
   useRegisterFluidHoverItem(register, index, ref);
   const Icon = row.icon ?? (row.kind === "dir" ? (row.open ? FolderOpen : Folder) : fileIcon(row.path).icon);
@@ -51,6 +52,7 @@ const RowView = memo(function RowView(props: {
       tabIndex={-1}
       title={row.title ?? (row.kind === "label" ? undefined : row.path)}
       onClick={() => onActivate(row)}
+      onDoubleClick={() => onDoubleActivate?.(row)}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onActivate(row))}
       className={cn(
         "group/row relative flex h-7 cursor-pointer items-center gap-1.5 rounded-md pr-1.5 text-[13px] outline-none select-none",
@@ -79,7 +81,20 @@ const RowView = memo(function RowView(props: {
 });
 
 /** A flat list of tree rows with FF's gliding hover highlight. */
-export function TreeRows({ rows, selected, onActivate, label }: { rows: Row[]; selected?: string | null; onActivate: (row: Row) => void; label: string }) {
+export function TreeRows({
+  rows,
+  selected,
+  onActivate,
+  onDoubleActivate,
+  label,
+}: {
+  rows: Row[];
+  selected?: string | null;
+  onActivate: (row: Row) => void;
+  /** double-click: for files, open for keeps (not as a preview) */
+  onDoubleActivate?: (row: Row) => void;
+  label: string;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const hover = useFluidHover(ref, { gapClick: false });
   // keep the selected row in view, e.g. as the diff scrolls through files
@@ -98,7 +113,7 @@ export function TreeRows({ rows, selected, onActivate, label }: { rows: Row[]; s
     >
       <FluidHoverHighlight hover={hover} className="rounded-md" />
       {rows.map((row, i) => (
-        <RowView key={row.key} row={row} index={i} selected={row.kind === "file" && row.path === selected} register={hover.registerItem} onActivate={onActivate} />
+        <RowView key={row.key} row={row} index={i} selected={row.kind === "file" && row.path === selected} register={hover.registerItem} onActivate={onActivate} onDoubleActivate={onDoubleActivate} />
       ))}
     </div>
   );

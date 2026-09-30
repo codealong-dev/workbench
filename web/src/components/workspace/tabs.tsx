@@ -6,6 +6,7 @@ import { MenuItem } from "@/components/ui/menu-item";
 import { StatusDot } from "@/components/app/status-dot";
 import { cn } from "@/lib/utils";
 import { useBufferTitle, useWorkspace, type Buffer } from "./buffers";
+import { editorKey, useEditors } from "@/lib/editor-state";
 
 /** A tab in the top strip: icon, title, close. Middle-click closes too. */
 export function BufferTab({ api, params }: IDockviewPanelHeaderProps<Buffer>) {
@@ -23,11 +24,26 @@ export function BufferTab({ api, params }: IDockviewPanelHeaderProps<Buffer>) {
     };
   }, [api]);
   const busy = thread && thread.status !== "idle";
+  const ws = useWorkspace();
+  const path = params.kind === "file" || params.kind === "diff" ? params.path : null;
+  const dirty = useEditors((s) => (path ? !!s.dirty[editorKey(ws.rootId, path)] : false));
+  const preview = (params.kind === "file" || params.kind === "diff") && !!params.preview;
+  const pin = () => preview && api.updateParameters({ ...params, preview: false });
+  // editing a preview keeps it
+  useEffect(() => {
+    if (dirty && preview) api.updateParameters({ ...params, preview: false });
+  }, [dirty, preview]); // eslint-disable-line react-hooks/exhaustive-deps
+  const close = () => {
+    // unsaved edits stay in the editor's model; reopening the file shows them
+    if (dirty && !window.confirm(`${title} has unsaved changes. Close the tab anyway? (Your edits are kept until you reload.)`)) return;
+    api.close();
+  };
 
   return (
     <div
       title={hint ? `${title}\n${hint}` : title}
-      onAuxClick={(e) => e.button === 1 && api.close()}
+      onAuxClick={(e) => e.button === 1 && close()}
+      onDoubleClick={pin}
       className={cn(
         "group/tab flex h-full items-center gap-1.5 rounded-md pr-1 pl-2.5 text-[12px] select-none",
         visible ? (groupActive ? "bg-active text-foreground" : "bg-hover text-foreground") : "text-muted-foreground hover:bg-hover hover:text-foreground",
@@ -37,18 +53,19 @@ export function BufferTab({ api, params }: IDockviewPanelHeaderProps<Buffer>) {
         <Icon size={14} strokeWidth={1.5} className={cn(iconClass)} />
         {busy && <StatusDot status={thread.status} className="absolute -top-0.5 -right-0.5 size-1.5" />}
       </span>
-      <span className="max-w-48 truncate">{title}</span>
+      <span className={cn("max-w-48 truncate", preview && "italic")}>{title}</span>
       <button
         type="button"
         aria-label={`Close ${title}`}
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.stopPropagation();
-          api.close();
+          close();
         }}
-        className={cn("rounded p-0.5 hover:bg-hover hover:text-foreground", visible ? "opacity-70" : "opacity-0 group-hover/tab:opacity-70")}
+        className={cn("rounded p-0.5 hover:bg-hover hover:text-foreground", visible || dirty ? "opacity-70" : "opacity-0 group-hover/tab:opacity-70")}
       >
-        <X className="size-3" />
+        {dirty ? <span className="block size-3 p-[3px] group-hover/tab:hidden"><span className="block size-1.5 rounded-full bg-foreground" /></span> : null}
+        <X className={cn("size-3", dirty && "hidden group-hover/tab:block")} />
       </button>
     </div>
   );

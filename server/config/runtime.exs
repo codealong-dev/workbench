@@ -51,3 +51,9 @@ if config_env() == :prod do
         Base.encode64(:crypto.strong_rand_bytes(48)),
     server: true
 end
+
+# File watching for editors: FSEvents on macOS, inotify on Linux (needs
+# inotify-tools). WB_WATCH_POLL=1 polls instead, e.g. on Linux without it.
+if System.get_env("WB_WATCH_POLL") in ~w(1 true) do
+  config :workbench, watch_opts: [backend: :fs_poll, interval: 1000]
+end

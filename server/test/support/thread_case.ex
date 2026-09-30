@@ -26,7 +26,14 @@ defmodule Workbench.ThreadCase do
 
     dir = Path.join(System.tmp_dir!(), "wb-test-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn ->
+      # watchers poll the directory; stop them before it goes
+      for {_, w, _, _} <- DynamicSupervisor.which_children(Workbench.Watcher.Supervisor), is_pid(w) do
+        DynamicSupervisor.terminate_child(Workbench.Watcher.Supervisor, w)
+      end
+
+      File.rm_rf!(dir)
+    end)
 
     {:ok, dir: dir}
   end

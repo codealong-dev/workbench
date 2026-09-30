@@ -15,7 +15,8 @@ const fromHash = () => location.hash.match(/^#\/t\/(.+)$/)?.[1] ?? null;
 
 const typing = (e: KeyboardEvent) => {
   const el = e.target as HTMLElement | null;
-  return !!el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+  // Monaco types into an EditContext div, xterm into its own textarea
+  return !!el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || !!el.closest?.(".monaco-editor, .xterm"));
 };
 
 export default function App() {

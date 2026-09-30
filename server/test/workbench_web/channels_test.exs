@@ -110,6 +110,17 @@ defmodule WorkbenchWeb.ChannelsTest do
     assert_reply ref, :ok, %{content: "# hi\n", binary: false}
     ref = push(chan, "file", %{"path" => "../x"})
     assert_reply ref, :error, %{reason: "path is outside the worktree"}
+
+    # save from the editor; a stale base is a conflict carrying what's on disk
+    ref = push(chan, "file", %{"path" => "x.md"})
+    assert_reply ref, :ok, %{hash: h1}
+    # the test watcher polls mtimes, which have 1s resolution
+    Process.sleep(1_100)
+    ref = push(chan, "file.write", %{"path" => "x.md", "content" => "# edited\n", "base_hash" => h1})
+    assert_reply ref, :ok, %{hash: _}
+    assert_push "files.changed", %{paths: ["x.md"]}, 3_000
+    ref = push(chan, "file.write", %{"path" => "x.md", "content" => "# again\n", "base_hash" => h1})
+    assert_reply ref, :error, %{reason: "conflict", content: "# edited\n"}
   end
 
   test "workspace layout: saved on the root thread, shared by its sessions", %{dir: dir} do

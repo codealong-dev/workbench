@@ -4,7 +4,7 @@ import { socket } from "@/socket";
 import { useStore } from "@/store";
 import type { HostInfo, PlanUsage, Project, Snapshot, Thread, ThreadEvent } from "@/contracts";
 
-type Reply = { ok: true; payload?: unknown } | { ok: false; reason: string };
+type Reply = { ok: true; payload?: unknown } | { ok: false; reason: string; payload?: unknown };
 
 /** Push and resolve with the reply, so callers can surface errors. */
 export function push(channel: Channel | null, event: string, payload: object = {}): Promise<Reply> {
@@ -13,7 +13,7 @@ export function push(channel: Channel | null, event: string, payload: object = {
     channel
       .push(event, payload)
       .receive("ok", (p) => resolve({ ok: true, payload: p }))
-      .receive("error", (p: { reason?: string }) => resolve({ ok: false, reason: p?.reason ?? "error" }))
+      .receive("error", (p: { reason?: string }) => resolve({ ok: false, reason: p?.reason ?? "error", payload: p }))
       .receive("timeout", () => resolve({ ok: false, reason: "timeout" }));
   });
 }

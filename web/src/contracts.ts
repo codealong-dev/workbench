@@ -150,6 +150,8 @@ export interface FileContent {
   binary: boolean;
   /** cut at 1MB */
   truncated: boolean;
+  /** what a save sends back to detect changes made meanwhile; null when truncated */
+  hash?: string | null;
 }
 
 export interface TerminalInfo {

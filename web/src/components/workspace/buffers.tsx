@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type RefObject } from "react";
+import { createContext, lazy, Suspense, useContext, useEffect, useState, type RefObject } from "react";
 import type { Channel } from "phoenix";
 import type { DockviewPanelApi, IDockviewPanelProps } from "dockview-react";
 import { FileDiff as FileDiffIcon, FlaskConical, Sparkle, SquareTerminal, type LucideIcon } from "lucide-react";
@@ -7,7 +7,6 @@ import { useStore } from "@/store";
 import { fileIcon } from "@/lib/file-icons";
 import { threadLabel } from "@/components/app/sidebar";
 import { DiffView } from "@/components/app/diff-view";
-import { FileView } from "@/components/app/file-view";
 import { TerminalView } from "@/components/app/terminal-view";
 import { ChatView } from "./chat-view";
 import { preferredEditor } from "@/components/app/open-menu";
@@ -18,8 +17,8 @@ export type Buffer =
   | { kind: "chat"; threadId: string }
   | { kind: "terminal"; terminalId: string }
   | { kind: "changes" }
-  | { kind: "file"; path: string }
-  | { kind: "diff"; path: string };
+  | { kind: "file"; path: string; preview?: boolean }
+  | { kind: "diff"; path: string; from?: string; preview?: boolean };
 
 export const bufferId = (b: Buffer): string => {
   switch (b.kind) {
@@ -37,6 +36,8 @@ export const bufferId = (b: Buffer): string => {
 };
 
 export interface OpenOptions {
+  /** a preview tab (italic) is replaced by the next preview; editing or double-clicking keeps it */
+  preview?: boolean;
   /** open beside the active group instead of in it */
   direction?: "right" | "below";
   /** leave focus where it is */
@@ -71,6 +72,8 @@ export interface Workspace {
   newChat: (provider: "claude" | "codex") => Promise<void>;
   newTerminal: () => Promise<void>;
   quickOpen: () => void;
+  /** files that changed on disk (from the worktree watcher); returns an unsubscribe */
+  onFilesChanged: (cb: (paths: string[]) => void) => () => void;
 }
 
 export const WorkspaceContext = createContext<Workspace | null>(null);
@@ -177,9 +180,25 @@ function ChangesPanel() {
   );
 }
 
+// Monaco is big: load it with the first editor tab.
+const FileEditor = lazy(() => import("@/components/editor/editors").then((m) => ({ default: m.FileEditor })));
+const FileDiffEditor = lazy(() => import("@/components/editor/editors").then((m) => ({ default: m.FileDiffEditor })));
+const loading = <div className="p-4 text-[12px] text-muted-foreground">Loading editor…</div>;
+
 function FilePanel({ params }: IDockviewPanelProps<Buffer & { kind: "file" }>) {
-  const ws = useWorkspace();
-  return <FileView channel={ws.channel.current} path={params.path} version={ws.version} onOpenInEditor={(p) => void ws.openIn(preferredEditor(), p)} />;
+  return (
+    <Suspense fallback={loading}>
+      <FileEditor path={params.path} />
+    </Suspense>
+  );
+}
+
+function DiffPanel({ params }: IDockviewPanelProps<Buffer & { kind: "diff" }>) {
+  return (
+    <Suspense fallback={loading}>
+      <FileDiffEditor path={params.path} from={params.from} />
+    </Suspense>
+  );
 }
 
 export const PANEL_COMPONENTS = {
@@ -187,6 +206,5 @@ export const PANEL_COMPONENTS = {
   terminal: TerminalPanel,
   changes: ChangesPanel,
   file: FilePanel,
-  // replaced by the editable Monaco diff in the editing phase
-  diff: FilePanel,
+  diff: DiffPanel,
 } as Record<string, React.FunctionComponent<IDockviewPanelProps>>;

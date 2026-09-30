@@ -21,6 +21,7 @@ A local-first workbench for running coding agents in parallel. A Phoenix app run
 | M9 Codex | Done: `codex app-server` over JSON-RPC from Elixir; streaming, approvals (commands, file patches, permissions), interrupt, resume, modes |
 | Questions + terminals | Done: AskUserQuestion (Claude) and request_user_input (Codex) as an answer card; real shells (PTY) in the worktree in the right panel |
 | File tree + changes panel | Done: right panel with Files (worktree tree) and Changes tabs, diff/file tabs in a middle pane, +a −d pill opens the diff |
+| M13 IDE workspace | Done: tabs for chats, terminals, changes and files; drag-and-drop splits saved per workspace; status bar; Monaco editing with editable per-file diffs, preview tabs, save conflict handling, live reload from a worktree watcher |
 | Sidebar + sessions | Done: Fluid Functionalism sidebar (inset, no icon rail, hover-peek, `[` toggles, drag to resize), search (⌘K), per-project filter, several Claude/Codex sessions per worktree as a tree, theme toggle |
 | M10 polish | Next |
 
@@ -40,7 +41,9 @@ make dev       # Phoenix :4000 + Vite :5173; open http://127.0.0.1:5173
 
 Add a project (any local git repo), then press **N** or **+** for a new thread. Each thread gets its own worktree at `~/.workbench/worktrees/<project>/<slug>` on branch `wb/<slug>`, cut from the base branch you pick. Pick **Claude Code**, or **Fake** to work on the UI without spending tokens.
 
-**Files and changes.** The panel on the right (toggle it with the icon at the far right of the thread header) has two tabs. **Files** is the worktree's file tree (what git tracks plus new files, minus ignored ones), with changed files coloured and a filter; click a file to read it. **Changes** lists what changed against the thread's base (merge base with the branch it was cut from, so commits and uncommitted edits both count; in-repo threads diff against HEAD), grouped by folder or as a tree, with **Push** (`git push -u origin <branch>`, plus an Open PR link). The **+a −d** pill in the header opens the full diff (unified or split). Diffs and open files sit in tabs in the middle pane and refresh when the agent finishes a turn. **Open in** (the editor icon; VS Code unless you picked another) opens the worktree in VS Code, Zed, Cursor or Finder, using the editor's CLI if it's on PATH or `open -a` otherwise; the ↗ icon on a file opens that file.
+**Workspace.** A thread and its sessions share one worktree, shown as one workspace. Everything you open is a tab along the top: each Claude or Codex chat, terminals, the changes, files. Things open full size; drag a tab onto an edge to split (or right-click a tab: Split right / down, maximize, close others), and the layout is saved per workspace on the server. The **+** on a tab strip starts a new Claude or Codex chat in this worktree, a terminal, or ⌘P to open a file. The status bar at the bottom shows the branch and its base, the worktree, **+a −d** (opens all the changes, unified or split), **Push** (`git push -u origin <branch>`, with an Open PR link), which agents are working or waiting, terminals, and **Open in** (the editor icon; VS Code unless you picked another) for VS Code, Zed, Cursor or Finder.
+
+**Files and changes.** The explorer on the right (toggle it at the right end of the status bar) has **Files**, the worktree's tree (what git tracks plus new files, minus ignored ones), and **Changes**, what changed against the thread's base (merge base with the branch it was cut from; in-repo threads diff against HEAD). Click a file to open it in the editor (Monaco, VS Code's editor), or a change to open that file's diff with the base on the left and the file, editable, on the right. A single click opens a preview tab (italic) that the next click replaces; double-click, or start editing, to keep it. ⌘S saves. Workbench watches the worktree, so open files reload when an agent, a terminal or another editor changes them; if you have unsaved edits you choose between the disk version and yours.
 
 **Sessions.** A thread's **⋮** menu adds another Claude or Codex session to the same worktree and branch (no new worktree, no setup), so you can get a second opinion or split work between agents on one branch. Sessions show nested under their thread. The number on a row is how many messages you've sent. **Branch thread** (the ↳ icon) is a placeholder for now.
 
@@ -48,7 +51,9 @@ Archiving a thread stops the agent, runs teardown and deletes the worktree; its 
 
 **Questions.** When an agent asks you something (Claude's AskUserQuestion, Codex's request_user_input), the thread shows a card with the options, multi-select where the agent allows it, and a free-text "Other". **Skip** tells the agent to go on without an answer. What you picked stays in the timeline.
 
-**Terminals.** The right panel's **Terminal** tab runs real shells (your login shell on a PTY) in the thread's worktree. Sessions of a thread share its terminals, they keep running when you close the tab or reload (the last 256 KB of output is replayed), and archiving the thread closes them. ``Ctrl+` `` opens the terminal, or moves to the next one if a terminal already has focus; ``Ctrl+Shift+` `` opens a new one.
+**Terminals.** Terminal tabs run real shells (your login shell on a PTY) in the thread's worktree. They keep running when you close the tab or reload (the last 256 KB of output is replayed), and archiving the thread closes them. ``Ctrl+` `` goes to the next terminal tab (opening one if there's none); ``Ctrl+Shift+` `` opens a new one.
+
+**Workspace keys:** ⌘P open a file, ⌘\ split the current tab to the right, Ctrl+W close it, ⌘S save.
 
 **Model and effort.** Under the message box: the model, its effort level and the permission mode, for Claude and Codex alike. The list comes from the agent itself (Claude Code's models, Codex's `model/list`) the first time you open it; a change applies from the next response.
 
@@ -110,6 +115,7 @@ spikes/    M0 checks
 | `WB_CLAUDE_BIN=$(which claude)` | Use your installed Claude Code instead of the SDK's pinned binary |
 | `WB_CODEX_BIN` | Path to the `codex` binary (default: `codex` on PATH) |
 | `WB_SIDECAR` | Path to an alternative sidecar bundle |
+| `WB_WATCH_POLL=1` | Poll for file changes instead of FSEvents/inotify (Linux without inotify-tools) |
 
 ## Tests
 

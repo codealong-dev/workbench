@@ -384,7 +384,8 @@ export function AppSidebar(props: {
   // ⌘K / Ctrl+K: open the sidebar if needed and focus search
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      // Monaco uses ⌘K chords
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k" && !(e.target as HTMLElement | null)?.closest?.(".monaco-editor")) {
         e.preventDefault();
         if (isMobile) setOpenMobile(true);
         else setOpen(true);
