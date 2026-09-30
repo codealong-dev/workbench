@@ -88,7 +88,10 @@ defmodule Workbench.Threads.Server do
     st = st |> flush() |> close_provider() |> stop_setup()
     thread = st.thread
     # child sessions borrow the root's worktree; only the root tears it down
-    if is_nil(thread.parent_id), do: Threads.archive_children(thread.id)
+    if is_nil(thread.parent_id) do
+      Threads.archive_children(thread.id)
+      Workbench.Terminals.close_all(thread.id)
+    end
 
     with nil <- thread.parent_id,
          %{} = project <- thread.project_id && Workbench.Projects.get(thread.project_id),
@@ -165,17 +168,21 @@ defmodule Workbench.Threads.Server do
 
   def handle_call(:interrupt, _from, st), do: {:reply, :ok, st}
 
-  def handle_call({:respond, rid, decision}, _from, st) do
+  def handle_call({:respond, rid, decision, answers}, _from, st) do
     cond do
-      decision not in ~w(allow allow_session deny) ->
+      decision not in ~w(allow allow_session deny answer) ->
         {:reply, {:error, :bad_decision}, st}
+
+      decision == "answer" and not valid_answers?(answers) ->
+        {:reply, {:error, :bad_answers}, st}
 
       not Map.has_key?(st.pending, rid) or st.pstate == nil ->
         {:reply, {:error, :unknown_request}, st}
 
       true ->
-        {:ok, p} = st.provider.respond(st.pstate, rid, decision)
-        st = resolve(%{st | pstate: p}, rid, decision)
+        answers = if decision == "answer", do: answers
+        {:ok, p} = st.provider.respond(st.pstate, rid, decision, answers)
+        st = resolve(%{st | pstate: p}, rid, decision, answers)
         {:reply, :ok, touch(st)}
     end
   end
@@ -417,13 +424,48 @@ defmodule Workbench.Threads.Server do
     st
   end
 
-  defp resolve(st, rid, decision) do
+  defp valid_answers?(answers) when is_map(answers) and map_size(answers) <= 20 do
+    Enum.all?(answers, fn {k, v} -> is_binary(k) and is_list(v) and length(v) <= 20 and Enum.all?(v, &is_binary/1) end)
+  end
+
+  defp valid_answers?(_), do: false
+
+  defp resolve(st, rid, decision, answers \\ nil) do
+    request = st.pending[rid]
     st = %{st | pending: Map.delete(st.pending, rid)}
-    st = broadcast(st, %{"type" => "approval.resolved", "request_id" => rid, "decision" => decision})
+    question? = match?(%{"tool" => "AskUserQuestion"}, request) and decision in ~w(answer deny)
+    picked = if decision == "answer", do: answers || %{}, else: %{}
+
+    ev = %{"type" => "approval.resolved", "request_id" => rid, "decision" => decision}
+    st = broadcast(st, if(question?, do: Map.put(ev, "answers", picked), else: ev))
+    st = if question?, do: record_answers(st, rid, request, picked), else: st
 
     if st.status == "awaiting_approval" and map_size(st.pending) == 0,
       do: set_status(st, "running"),
       else: st
+  end
+
+  # The answers belong on the question's tool item so they survive a reload.
+  # Claude (and the fake) have one with the request's id; Codex's
+  # request_user_input has no item, so it gets one.
+  defp record_answers(st, rid, request, picked) do
+    if Map.has_key?(st.tools, rid) do
+      %{st | tools: Map.update!(st.tools, rid, &Map.put(&1, "answers", picked))}
+    else
+      emit(st, %{
+        "type" => "item.completed",
+        "item" => %{
+          "id" => rid,
+          "kind" => "tool",
+          "name" => "AskUserQuestion",
+          "input" => request["input"],
+          "answers" => picked,
+          "output" => nil,
+          "is_error" => false,
+          "status" => "done"
+        }
+      })
+    end
   end
 
   defp cancel_pending(st) do

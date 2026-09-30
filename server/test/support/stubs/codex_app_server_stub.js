@@ -6,7 +6,8 @@
 //   run     command execution that needs approval; replies with the decision
 //   patch   file change that needs approval
 //   perm    permissions request; echoes the response
-//   ask     a request Workbench doesn't support (item/tool/requestUserInput)
+//   ask     request_user_input with two questions; echoes the response
+//   mcp     a request Workbench doesn't support (mcpServer/elicitation/request)
 //   fail    retrying errors, then a failed turn
 //   slow    streams until turn/interrupt
 //   policy  echoes the approval policy and sandbox sent with the turn
@@ -102,8 +103,18 @@ async function runTurn(text, params) {
   }
 
   if (text === "ask") {
-    const res = await ask("item/tool/requestUserInput", { threadId: thread, turnId: turn, itemId: id("q"), questions: [], isBlocking: true, autoResolutionMs: null });
-    await agentMessage(`ask=${res.error ? res.error.code : "answered"}`, 1);
+    const questions = [
+      { id: "lang", header: "Language", question: "Which language?", isOther: false, isSecret: false, options: [{ label: "Go", description: "fast" }, { label: "Elixir", description: "fun" }] },
+      { id: "name", header: "Name", question: "Project name?", isOther: true, isSecret: false, options: null },
+    ];
+    const res = await ask("item/tool/requestUserInput", { threadId: thread, turnId: turn, itemId: id("q"), questions, isBlocking: true, autoResolutionMs: null });
+    await agentMessage(`ask=${JSON.stringify(res.result)}`, 1);
+    return complete("completed");
+  }
+
+  if (text === "mcp") {
+    const res = await ask("mcpServer/elicitation/request", { threadId: thread, turnId: turn, serverName: "x", message: "?" });
+    await agentMessage(`mcp=${res.error ? res.error.code : "answered"}`, 1);
     return complete("completed");
   }
 

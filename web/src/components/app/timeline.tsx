@@ -3,10 +3,11 @@ import { Brain, ChevronRight, CircleAlert } from "lucide-react";
 import { ChatMessage } from "@/components/ui/chat-message";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
 import { cn } from "@/lib/utils";
-import type { Approval, Decision, Item, LiveItem, Status, TurnItem } from "@/contracts";
+import type { Approval, Decision, Item, LiveItem, Status, TurnItem, Answers } from "@/contracts";
 import { Markdown } from "./markdown";
 import { ToolCall } from "./tool-call";
 import { ApprovalCard } from "./approval-card";
+import { QuestionCard } from "./question-card";
 
 function Reasoning({ text, live }: { text: string; live: boolean }) {
   const [open, setOpen] = useState(false);
@@ -78,9 +79,12 @@ export function Timeline(props: {
   live: LiveItem[];
   pending: Approval[];
   status: Status;
-  onDecide: (requestId: string, d: Decision) => Promise<void>;
+  onDecide: (requestId: string, d: Decision, answers?: Answers) => Promise<void>;
+  agent: string;
 }) {
-  const { items, live, pending, status, onDecide } = props;
+  const { items, live, pending, status, onDecide, agent } = props;
+  // a question's own tool row would repeat the card while it is open
+  const asking = new Set(pending.filter((a) => a.tool === "AskUserQuestion").map((a) => a.request_id));
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
 
@@ -105,15 +109,26 @@ export function Timeline(props: {
         {items.length === 0 && live.length === 0 && status === "idle" && (
           <div className="py-24 text-center text-[13px] text-muted-foreground">Send a message to start.</div>
         )}
-        {items.map((it) => (
-          <Row key={it.id} item={it} live={false} />
-        ))}
+        {items
+          .filter((it) => !asking.has(it.id))
+          .map((it) => (
+            <Row key={it.id} item={it} live={false} />
+          ))}
         {live.map((it) => (
           <Row key={it.id} item={it} live />
         ))}
-        {pending.map((a) => (
-          <ApprovalCard key={a.request_id} approval={a} onDecide={(d) => onDecide(a.request_id, d)} />
-        ))}
+        {pending.map((a) =>
+          a.tool === "AskUserQuestion" ? (
+            <QuestionCard
+              key={a.request_id}
+              approval={a}
+              agent={agent}
+              onAnswer={(answers) => (answers ? onDecide(a.request_id, "answer", answers) : onDecide(a.request_id, "deny"))}
+            />
+          ) : (
+            <ApprovalCard key={a.request_id} approval={a} onDecide={(d) => onDecide(a.request_id, d)} />
+          ),
+        )}
         {waiting && <ThinkingIndicator className="self-start px-0" />}
       </div>
     </div>

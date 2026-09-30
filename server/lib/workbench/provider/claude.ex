@@ -57,8 +57,8 @@ defmodule Workbench.Provider.Claude do
   end
 
   @impl true
-  def respond(%{io: io} = p, request_id, decision) do
-    Proc.write_json(io, %{op: "approve", request_id: request_id, decision: decision})
+  def respond(%{io: io} = p, request_id, decision, answers) do
+    Proc.write_json(io, %{op: "approve", request_id: request_id, decision: decision, answers: answers})
     {:ok, p}
   end
 

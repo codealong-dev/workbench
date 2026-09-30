@@ -144,4 +144,21 @@ defmodule Workbench.ServerTest do
   test "unknown thread id" do
     assert {:error, :not_found} = Threads.ensure_started(Ecto.UUID.generate())
   end
+
+  test "AskUserQuestion: answers reach the provider and come back resolved", %{dir: dir} do
+    t = create_thread(dir)
+    Threads.subscribe(t.id)
+    :ok = Threads.send_message(t.id, "please ask me something")
+    [req | _] = collect_until(type?("approval.requested")) |> Enum.reverse()
+    assert %{"tool" => "AskUserQuestion", "input" => %{"questions" => [%{"id" => q1}, %{"id" => q2, "multiSelect" => true}]}} = req
+    assert Threads.snapshot(t.id).status == "awaiting_approval"
+
+    assert {:error, :bad_answers} = Threads.respond(t.id, req["request_id"], "answer", nil)
+    answers = %{q1 => ["Word cycling"], q2 => ["Timeline", "Indicator"]}
+    :ok = Threads.respond(t.id, req["request_id"], "answer", answers)
+    events = collect_until(type?("turn.completed"))
+    assert Enum.any?(events, &(&1["type"] == "approval.resolved" and &1["decision"] == "answer" and &1["answers"] == answers))
+    assert %{"output" => "answers=" <> json, "answers" => ^answers} = Enum.find(Items.last(t.id), &(&1["kind"] == "tool" and &1["name"] == "AskUserQuestion"))
+    assert Jason.decode!(json) == answers
+  end
 end

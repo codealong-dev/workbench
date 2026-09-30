@@ -147,7 +147,12 @@ export function applyEvent(ts: ThreadState, ev: ThreadEvent): ThreadState {
       return { ...next, pending: [...ts.pending, { request_id: ev.request_id, tool: ev.tool, input: ev.input, reason: ev.reason }] };
 
     case "approval.resolved":
-      return { ...next, pending: ts.pending.filter((p) => p.request_id !== ev.request_id) };
+      return {
+        ...next,
+        pending: ts.pending.filter((p) => p.request_id !== ev.request_id),
+        // a question's answers live on its tool item
+        items: ev.answers ? ts.items.map((it) => (it.id === ev.request_id && it.kind === "tool" ? { ...it, answers: ev.answers } : it)) : ts.items,
+      };
 
     case "turn.completed":
       return {

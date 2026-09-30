@@ -14,8 +14,12 @@ import {
   Plus,
   RefreshCw,
   Search,
+  SquareTerminal,
   X,
 } from "lucide-react";
+import type { RefObject } from "react";
+import type { Channel } from "phoenix";
+import { TerminalTab } from "./terminal-tab";
 import { motion } from "framer-motion";
 import { Tabs, TabItem, TabsList } from "@/components/ui/tabs";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -27,7 +31,7 @@ import type { DiffFile, DiffResult, FileList, FileStatus, PushResult } from "@/c
 import { ancestors, buildTree, flattenTree, TreeRows, type Row } from "./file-tree";
 import { Counts } from "./diff-view";
 
-export type PanelTab = "files" | "changes";
+export type PanelTab = "files" | "changes" | "terminal";
 type PushOutcome = { ok: true; result: PushResult } | { ok: false; error: string };
 
 // ── bits ────────────────────────────────────────────────────────────────────
@@ -394,6 +398,9 @@ export function SidePanel(props: {
   onOpenChange: (path: string) => void;
   onOpenInEditor: (path: string) => void;
   onPush: () => Promise<PushOutcome>;
+  channel: RefObject<Channel | null>;
+  terminalCycle: number;
+  terminalSpawn: number;
 }) {
   const { tab, onTab, files, diff } = props;
   const { width, dragging, onMouseDown } = useResizableWidth("wb.panelWidth", 300, 220, 560, "left");
@@ -408,10 +415,13 @@ export function SidePanel(props: {
           <TabsList>
             <TabItem value="files" icon={Files} label="Files" />
             <TabItem value="changes" icon={FileDiffIcon} label={count ? `Changes ${count}` : "Changes"} />
+            <TabItem value="terminal" icon={SquareTerminal} label="Terminal" />
           </TabsList>
         </Tabs>
       </div>
-      {tab === "files" ? (
+      {tab === "terminal" ? (
+        <TerminalTab channel={props.channel} cycle={props.terminalCycle} spawn={props.terminalSpawn} />
+      ) : tab === "files" ? (
         <FilesTab
           list={files.list}
           error={files.error}

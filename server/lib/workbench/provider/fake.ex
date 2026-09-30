@@ -42,8 +42,8 @@ defmodule Workbench.Provider.Fake do
   end
 
   @impl true
-  def respond(%{io: pid} = p, request_id, decision) do
-    send(pid, {:respond, request_id, decision})
+  def respond(%{io: pid} = p, request_id, decision, answers) do
+    send(pid, {:respond, request_id, decision, answers})
     {:ok, p}
   end
 
@@ -115,9 +115,14 @@ defmodule Workbench.Provider.Fake do
     emit(server, ev)
 
     receive do
-      {:respond, ^rid, decision} ->
-        emit(server, %{"type" => "approval.resolved", "request_id" => rid, "decision" => decision})
+      {:respond, ^rid, decision, answers} ->
         rest = if decision == "deny", do: deny_rest(rest), else: rest
+        # an AskUserQuestion answer shows up as the tool's result
+        rest =
+          if ev["tool"] == "AskUserQuestion",
+            do: Enum.map(rest, &answer_result(&1, decision, answers)),
+            else: rest
+
         play(server, rest, n)
 
       :interrupt ->
@@ -134,6 +139,11 @@ defmodule Workbench.Provider.Fake do
       _ -> play(server, rest, n)
     end
   end
+
+  defp answer_result(%{"type" => "tool.completed"} = ev, "answer", answers),
+    do: %{ev | "output" => "answers=" <> Jason.encode!(answers), "is_error" => false}
+
+  defp answer_result(ev, _, _), do: ev
 
   defp deny_rest(rest) do
     Enum.map(rest, fn
@@ -171,6 +181,36 @@ defmodule Workbench.Provider.Fake do
 
   # -- generated turn ---------------------------------------------------------
 
+  defp fake_questions do
+    [
+      %{
+        "id" => "Which repeat do you mean?",
+        "header" => "Repeat type",
+        "question" => "Which repeat do you mean?",
+        "options" => [
+          %{"label" => "Stacked Thought rows", "description" => "One collapsed row per reasoning block."},
+          %{"label" => "Word cycling", "description" => "The live indicator loops through its words."}
+        ],
+        "multiSelect" => false,
+        "allowOther" => true,
+        "secret" => false
+      },
+      %{
+        "id" => "Where should the fix go?",
+        "header" => "Scope",
+        "question" => "Where should the fix go?",
+        "options" => [
+          %{"label" => "Timeline", "description" => "Group consecutive reasoning."},
+          %{"label" => "Indicator", "description" => "Stop cycling after one pass."},
+          %{"label" => "Both", "description" => ""}
+        ],
+        "multiSelect" => true,
+        "allowOther" => true,
+        "secret" => false
+      }
+    ]
+  end
+
   defp generated_turn(n, text) do
     turn = "t#{n}"
     r = "r#{n}"
@@ -199,7 +239,19 @@ defmodule Workbench.Provider.Fake do
         ],
         else: []
 
+    ask = String.contains?(String.downcase(text), "ask me")
+
+    question =
+      if ask,
+        do: [
+          %{"type" => "tool.started", "item_id" => "ask#{n}", "name" => "AskUserQuestion", "input" => %{"questions" => fake_questions()}},
+          %{"type" => "approval.requested", "request_id" => "ask#{n}", "tool" => "AskUserQuestion", "input" => %{"questions" => fake_questions()}},
+          %{"type" => "tool.completed", "item_id" => "ask#{n}", "output" => "(no answer)", "truncated" => false, "is_error" => false}
+        ],
+        else: []
+
     [%{"type" => "turn.started", "turn_id" => turn}] ++
+      question ++
       deltas("reasoning.delta", r, thinking) ++
       [item(r, "reasoning", thinking, turn)] ++
       deltas("text.delta", m1, answer) ++

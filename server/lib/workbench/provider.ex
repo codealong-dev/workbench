@@ -37,7 +37,13 @@ defmodule Workbench.Provider do
   @callback open(open_opts()) :: {:ok, pstate()} | {:error, term()}
   @callback send_turn(pstate(), text :: String.t()) :: {:ok, pstate()} | {:error, term()}
   @callback interrupt(pstate()) :: {:ok, pstate()}
-  @callback respond(pstate(), request_id :: String.t(), decision()) :: {:ok, pstate()}
+  @doc """
+  Answer a pending request. `decision` is allow | allow_session | deny for
+  approvals, or "answer" for an AskUserQuestion request, with `answers`
+  mapping each question id to the picked labels (or typed text).
+  """
+  @callback respond(pstate(), request_id :: String.t(), decision(), answers :: %{String.t() => [String.t()]} | nil) ::
+              {:ok, pstate()}
   @callback set_mode(pstate(), mode :: String.t()) :: {:ok, pstate()}
   @callback handle_line(pstate(), line :: binary()) :: {[event()], pstate()}
   @callback close(pstate()) :: :ok

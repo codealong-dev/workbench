@@ -9,10 +9,13 @@ defmodule Workbench.Threads do
   alias Workbench.{Projects, Repo, Worktrees}
   alias Workbench.Threads.{Server, Thread}
 
-  @lobby "lobby"
+  # PubSub topics. Not the channel topics ("lobby", "thread:<id>"): a channel
+  # process is already subscribed to its own topic on the endpoint's PubSub,
+  # so reusing those names delivered every message twice.
+  @lobby "wb:lobby"
 
   def lobby_topic, do: @lobby
-  def topic(id), do: "thread:" <> id
+  def topic(id), do: "wb:thread:" <> id
 
   def subscribe(id), do: Phoenix.PubSub.subscribe(Workbench.PubSub, topic(id))
   def subscribe_lobby, do: Phoenix.PubSub.subscribe(Workbench.PubSub, @lobby)
@@ -160,7 +163,7 @@ defmodule Workbench.Threads do
 
   def send_message(id, text) when is_binary(text), do: call(id, {:send, text})
   def interrupt(id), do: call(id, :interrupt)
-  def respond(id, request_id, decision), do: call(id, {:respond, request_id, decision})
+  def respond(id, request_id, decision, answers \\ nil), do: call(id, {:respond, request_id, decision, answers})
   def set_mode(id, mode), do: call(id, {:set_mode, mode})
 
   @doc "Current state for a joining client: thread, status, seq, items, live text, pending approvals."

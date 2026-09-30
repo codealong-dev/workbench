@@ -13,13 +13,15 @@ import { randomUUID } from "node:crypto";
 import { query, type PermissionMode, type Query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { Inbox } from "./inbox.ts";
 import { initialState, normalize, type Event } from "./normalize.ts";
+import { toQuestions, withAnswers } from "./questions.ts";
 
-type Decision = "allow" | "allow_session" | "deny";
+type Decision = "allow" | "allow_session" | "deny" | "answer";
+type Response = { decision: Decision; answers?: Record<string, string[]> };
 type Op =
   | { op: "start"; cwd?: string; resume?: string | null; model?: string | null; mode?: PermissionMode }
   | { op: "send"; text: string }
   | { op: "interrupt" }
-  | { op: "approve"; request_id: string; decision: Decision }
+  | { op: "approve"; request_id: string; decision: Decision; answers?: Record<string, string[]> }
   | { op: "set_mode"; mode: PermissionMode }
   | { op: "stop" };
 
@@ -27,7 +29,7 @@ const log = (...a: unknown[]) => process.stderr.write(`[sidecar] ${a.map(String)
 const emit = (e: Event) => process.stdout.write(JSON.stringify(e) + "\n");
 
 const inbox = new Inbox<SDKUserMessage>();
-const pending = new Map<string, (d: Decision) => void>();
+const pending = new Map<string, (r: Response) => void>();
 const st = initialState();
 let q: Query | null = null;
 let stopping = false;
@@ -50,25 +52,31 @@ function start(op: Extract<Op, { op: "start" }>) {
       stderr: (data) => process.stderr.write(data),
       canUseTool: async (tool, input, opts) => {
         const request_id = opts.toolUseID ?? randomUUID();
+        const asking = tool === "AskUserQuestion";
         emit({
           type: "approval.requested",
           request_id,
           tool,
-          input,
+          input: asking ? { questions: toQuestions(input) } : input,
           reason: opts.title ?? opts.decisionReason ?? null,
         });
 
-        const decision = await new Promise<Decision>((resolve) => {
+        const r = await new Promise<Response>((resolve) => {
           pending.set(request_id, resolve);
-          opts.signal.addEventListener("abort", () => resolve("deny"), { once: true });
+          opts.signal.addEventListener("abort", () => resolve({ decision: "deny" }), { once: true });
         });
         pending.delete(request_id);
 
-        if (decision === "deny") return { behavior: "deny", message: "Denied by user" };
+        if (asking) {
+          return r.decision === "answer"
+            ? { behavior: "allow", updatedInput: withAnswers(input, r.answers ?? {}) }
+            : { behavior: "deny", message: "The user skipped these questions. Continue with your best judgement, or ask again later." };
+        }
+        if (r.decision === "deny") return { behavior: "deny", message: "Denied by user" };
         return {
           behavior: "allow",
           updatedInput: input,
-          ...(decision === "allow_session" && opts.suggestions ? { updatedPermissions: opts.suggestions } : {}),
+          ...(r.decision === "allow_session" && opts.suggestions ? { updatedPermissions: opts.suggestions } : {}),
         };
       },
     },
@@ -101,7 +109,7 @@ function send(text: string) {
 async function interrupt() {
   if (!q || !st.turnId) return;
   st.interrupting = true;
-  for (const resolve of pending.values()) resolve("deny");
+  for (const resolve of pending.values()) resolve({ decision: "deny" });
   await q.interrupt().catch((e) => log("interrupt failed:", e?.message ?? e));
 }
 
@@ -123,7 +131,7 @@ async function handle(op: Op) {
     case "interrupt":
       return interrupt();
     case "approve":
-      return pending.get(op.request_id)?.(op.decision);
+      return pending.get(op.request_id)?.({ decision: op.decision, answers: op.answers });
     case "set_mode":
       return q?.setPermissionMode(op.mode).catch((e) => log("set_mode failed:", e?.message ?? e));
     case "stop":

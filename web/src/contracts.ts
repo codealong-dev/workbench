@@ -4,7 +4,21 @@
 export type Provider = "claude" | "codex" | "fake";
 export type Mode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
 export type Status = "idle" | "running" | "awaiting_approval" | "error";
-export type Decision = "allow" | "allow_session" | "deny";
+export type Decision = "allow" | "allow_session" | "deny" | "answer";
+
+/** AskUserQuestion (Claude) and request_user_input (Codex), in one shape. */
+export interface Question {
+  id: string;
+  header: string;
+  question: string;
+  options: { label: string; description: string }[];
+  multiSelect: boolean;
+  allowOther: boolean;
+  secret: boolean;
+}
+
+/** question id -> picked labels (or typed text) */
+export type Answers = Record<string, string[]>;
 
 export interface Project {
   id: string;
@@ -52,6 +66,8 @@ export type ToolItem = {
   truncated?: boolean;
   parent_id?: string | null;
   status: "running" | "done";
+  /** AskUserQuestion: what the user picked ({} when skipped) */
+  answers?: Answers;
 };
 export type TurnItem = { id: string; kind: "turn"; turn_id: string; status: "ok" | "interrupted" | "error"; usage?: Usage; cost_usd?: number | null };
 export type ErrorItem = { id: string; kind: "error"; message: string };
@@ -73,7 +89,7 @@ export type ThreadEvent = Env &
     | { type: "tool.started"; item_id: string; name: string; input: unknown; parent_id?: string }
     | { type: "tool.completed"; item_id: string; output: string; truncated: boolean; is_error: boolean }
     | ({ type: "approval.requested" } & Approval)
-    | { type: "approval.resolved"; request_id: string; decision: Decision | "cancelled" }
+    | { type: "approval.resolved"; request_id: string; decision: Decision | "cancelled"; answers?: Answers }
     | { type: "turn.completed"; turn_id: string; status: TurnItem["status"]; usage?: Usage; cost_usd?: number | null }
     | { type: "status.changed"; status: Status }
     | { type: "error"; message: string; fatal: boolean }
@@ -133,4 +149,15 @@ export interface FileContent {
   binary: boolean;
   /** cut at 1MB */
   truncated: boolean;
+}
+
+export interface TerminalInfo {
+  id: string;
+  owner_id: string;
+  n: number;
+  title: string;
+  cwd: string;
+  cols: number;
+  rows: number;
+  created_at: string;
 }

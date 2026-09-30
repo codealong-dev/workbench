@@ -17,6 +17,8 @@ defmodule WorkbenchWeb.ChannelsTest do
     ref = push(lobby, "thread.create", %{"provider" => "fake", "cwd" => dir, "title" => "t"})
     assert_reply ref, :ok, %{thread: %{id: id, status: "idle"}}
     assert_push "thread.upserted", %{id: ^id}
+    # once: PubSub topics must not double up with the channel's own topic
+    refute_push "thread.upserted", %{id: ^id}, 100
 
     ref = push(lobby, "thread.create", %{"provider" => "fake", "cwd" => "/definitely/not/here"})
     assert_reply ref, :error, %{reason: "worktree_path is not a directory"}

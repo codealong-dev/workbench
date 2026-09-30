@@ -109,13 +109,13 @@ defmodule Workbench.Provider.Codex do
   def interrupt(p), do: {:ok, %{p | interrupt_pending: true, queued: []}}
 
   @impl true
-  def respond(p, request_id, decision) do
+  def respond(p, request_id, decision, answers) do
     case Map.pop(p.approvals, request_id) do
       {nil, _} ->
         {:ok, p}
 
       {{rpc_id, method, params}, approvals} ->
-        p.write.(%{"id" => rpc_id, "result" => approval_result(method, params, decision)})
+        p.write.(%{"id" => rpc_id, "result" => approval_result(method, params, decision, answers)})
         {:ok, %{p | approvals: approvals}}
     end
   end
@@ -501,6 +501,24 @@ defmodule Workbench.Provider.Codex do
     approval(p, rpc_id, method, params, "Permissions", params["permissions"] || %{})
   end
 
+  # Codex's request_user_input: same card as Claude's AskUserQuestion
+  defp server_request(p, rpc_id, "item/tool/requestUserInput" = method, params) do
+    questions =
+      for q <- params["questions"] || [] do
+        %{
+          "id" => q["id"],
+          "header" => q["header"] || "",
+          "question" => q["question"] || "",
+          "options" => Enum.map(q["options"] || [], &%{"label" => &1["label"], "description" => &1["description"] || ""}),
+          "multiSelect" => false,
+          "allowOther" => q["isOther"] == true or (q["options"] || []) == [],
+          "secret" => q["isSecret"] == true
+        }
+      end
+
+    approval(p, rpc_id, method, params, "AskUserQuestion", %{"questions" => questions})
+  end
+
   defp server_request(p, rpc_id, method, _params) do
     p.write.(%{
       "id" => rpc_id,
@@ -530,7 +548,12 @@ defmodule Workbench.Provider.Codex do
     {[event], %{p | approvals: Map.put(p.approvals, request_id, {rpc_id, method, params})}}
   end
 
-  defp approval_result("item/permissions/requestApproval", params, decision) do
+  defp approval_result("item/tool/requestUserInput", _params, decision, answers) do
+    picked = if decision == "answer", do: answers || %{}, else: %{}
+    %{"answers" => Map.new(picked, fn {id, values} -> {id, %{"answers" => values}} end)}
+  end
+
+  defp approval_result("item/permissions/requestApproval", params, decision, _answers) do
     requested = params["permissions"] || %{}
 
     granted =
@@ -542,7 +565,7 @@ defmodule Workbench.Provider.Codex do
     }
   end
 
-  defp approval_result(_method, _params, decision) do
+  defp approval_result(_method, _params, decision, _answers) do
     %{
       "decision" =>
         %{"allow" => "accept", "allow_session" => "acceptForSession"}[decision] || "decline"

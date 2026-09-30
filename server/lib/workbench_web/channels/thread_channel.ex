@@ -13,7 +13,11 @@ defmodule WorkbenchWeb.ThreadChannel do
     case Threads.ensure_started(id) do
       {:ok, _pid} ->
         Threads.subscribe(id)
-        {:ok, Threads.snapshot(id), assign(socket, :thread_id, id)}
+        snap = Threads.snapshot(id)
+        # terminals belong to the root thread; its sessions share them
+        owner = snap.thread.parent_id || id
+        Phoenix.PubSub.subscribe(Workbench.PubSub, Workbench.Terminals.owner_topic(owner))
+        {:ok, snap, assign(socket, thread_id: id, terminal_owner: owner)}
 
       {:error, :not_found} ->
         {:error, %{reason: "not_found"}}
@@ -32,8 +36,9 @@ defmodule WorkbenchWeb.ThreadChannel do
     result(Threads.interrupt(socket.assigns.thread_id), socket)
   end
 
-  def handle_in("approve", %{"request_id" => rid, "decision" => decision}, socket) do
-    result(Threads.respond(socket.assigns.thread_id, rid, decision), socket)
+  # `{request_id, decision}`; for AskUserQuestion `{request_id, decision: "answer", answers: {id => [labels]}}`
+  def handle_in("approve", %{"request_id" => rid, "decision" => decision} = params, socket) do
+    result(Threads.respond(socket.assigns.thread_id, rid, decision, params["answers"]), socket)
   end
 
   def handle_in("set_mode", %{"mode" => mode}, socket) do
@@ -60,6 +65,34 @@ defmodule WorkbenchWeb.ThreadChannel do
 
   def handle_in("file", %{"path" => path}, socket) when is_binary(path) do
     with_thread(socket, &Workbench.Files.read(&1.worktree_path, path))
+  end
+
+  # Terminals in the worktree: `terminals` -> {terminals}, `terminal.create`
+  # {cols?, rows?} -> terminal, `terminal.close` {id}. The list is pushed as
+  # `terminals` whenever it changes.
+  def handle_in("terminals", _params, socket) do
+    {:reply, {:ok, %{terminals: Workbench.Terminals.list(socket.assigns.terminal_owner)}}, socket}
+  end
+
+  def handle_in("terminal.create", params, socket) do
+    with %{} = thread <- Threads.get(socket.assigns.thread_id),
+         {:ok, term} <-
+           Workbench.Terminals.create(socket.assigns.terminal_owner, thread.worktree_path,
+             cols: int(params["cols"], 80),
+             rows: int(params["rows"], 24)
+           ) do
+      {:reply, {:ok, term}, socket}
+    else
+      nil -> {:reply, {:error, %{reason: "not_found"}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
+    end
+  end
+
+  def handle_in("terminal.close", %{"id" => id}, socket) when is_binary(id) do
+    if Enum.any?(Workbench.Terminals.list(socket.assigns.terminal_owner), &(&1.id == id)),
+      do: Workbench.Terminals.close(id)
+
+    {:reply, :ok, socket}
   end
 
   def handle_in("open_editor", %{"editor" => editor} = params, socket) do
@@ -93,10 +126,18 @@ defmodule WorkbenchWeb.ThreadChannel do
     {:noreply, socket}
   end
 
+  def handle_info({:terminals_changed, owner}, socket) do
+    push(socket, "terminals", %{terminals: Workbench.Terminals.list(owner)})
+    {:noreply, socket}
+  end
+
   def handle_info({:events, batch}, socket) do
     push(socket, "event", %{batch: batch})
     {:noreply, socket}
   end
+
+  defp int(v, _default) when is_integer(v) and v > 0, do: v
+  defp int(_, default), do: default
 
   defp with_thread(socket, fun) do
     with %{} = thread <- Threads.get(socket.assigns.thread_id),

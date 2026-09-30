@@ -8,6 +8,7 @@ defmodule WorkbenchWeb.UserSocket do
 
   channel "lobby", WorkbenchWeb.LobbyChannel
   channel "thread:*", WorkbenchWeb.ThreadChannel
+  channel "terminal:*", WorkbenchWeb.TerminalChannel
 
   @impl true
   def connect(%{"token" => token}, socket, _connect_info) do

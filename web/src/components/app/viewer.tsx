@@ -139,7 +139,7 @@ function FileView({ channel, path, version, onOpenInEditor }: { channel: Channel
             <div className="wb-diff">
               <CodeFile
                 file={{ name: path, contents: file.content ?? "" }}
-                options={{ theme: { light: "github-light", dark: "github-dark" }, themeType, overflow: "scroll", disableFileHeader: true }}
+                options={{ theme: { light: "light-plus", dark: "dark-plus" }, themeType, overflow: "scroll", disableFileHeader: true }}
               />
             </div>
           </>

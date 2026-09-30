@@ -123,13 +123,50 @@ defmodule Workbench.CodexProviderTest do
       assert echo == ~s(perm={"permissions":{"network":{"enabled":true}},"scope":"turn"})
     end
 
-    test "unsupported server requests are declined so the turn can finish", %{dir: dir} do
+    test "request_user_input becomes an AskUserQuestion card and returns the answers", %{dir: dir} do
       t = create_thread(dir, %{provider: "codex"})
       Threads.subscribe(t.id)
       :ok = Threads.send_message(t.id, "ask")
+      [req | _] = collect_until(type?("approval.requested")) |> Enum.reverse()
+
+      assert %{
+               "tool" => "AskUserQuestion",
+               "input" => %{
+                 "questions" => [
+                   %{"id" => "lang", "header" => "Language", "options" => [%{"label" => "Go"}, %{"label" => "Elixir"}], "allowOther" => false},
+                   %{"id" => "name", "options" => [], "allowOther" => true}
+                 ]
+               }
+             } = req
+
+      assert {:error, :bad_answers} = Threads.respond(t.id, req["request_id"], "answer", %{"lang" => "Go"})
+      :ok = Threads.respond(t.id, req["request_id"], "answer", %{"lang" => ["Elixir"], "name" => ["workbench"]})
       events = collect_until(type?("turn.completed"))
-      assert Enum.any?(events, &(&1["type"] == "error" and &1["message"] =~ "item/tool/requestUserInput"))
-      assert Enum.any?(events, &(&1["type"] == "item.completed" and &1["item"]["text"] == "ask=-32601"))
+      assert Enum.any?(events, &(&1["type"] == "approval.resolved" and &1["answers"] == %{"lang" => ["Elixir"], "name" => ["workbench"]}))
+      echo = Enum.find_value(events, &(&1["type"] == "item.completed" && &1["item"]["text"]))
+      assert Jason.decode!(String.trim_leading(echo, "ask=")) == %{"answers" => %{"lang" => %{"answers" => ["Elixir"]}, "name" => %{"answers" => ["workbench"]}}}
+      # no item for request_user_input in Codex, so Workbench records one
+      assert %{"name" => "AskUserQuestion", "answers" => %{"lang" => ["Elixir"]}, "input" => %{"questions" => [_, _]}} =
+               Enum.find(Items.last(t.id), &(&1["kind"] == "tool" and &1["name"] == "AskUserQuestion"))
+    end
+
+    test "skipping request_user_input sends no answers", %{dir: dir} do
+      t = create_thread(dir, %{provider: "codex"})
+      Threads.subscribe(t.id)
+      :ok = Threads.send_message(t.id, "ask")
+      [req | _] = collect_until(type?("approval.requested")) |> Enum.reverse()
+      :ok = Threads.respond(t.id, req["request_id"], "deny")
+      events = collect_until(type?("turn.completed"))
+      assert Enum.any?(events, &(&1["type"] == "item.completed" and &1["item"]["text"] == ~s(ask={"answers":{}})))
+    end
+
+    test "unsupported server requests are declined so the turn can finish", %{dir: dir} do
+      t = create_thread(dir, %{provider: "codex"})
+      Threads.subscribe(t.id)
+      :ok = Threads.send_message(t.id, "mcp")
+      events = collect_until(type?("turn.completed"))
+      assert Enum.any?(events, &(&1["type"] == "error" and &1["message"] =~ "mcpServer/elicitation/request"))
+      assert Enum.any?(events, &(&1["type"] == "item.completed" and &1["item"]["text"] == "mcp=-32601"))
       assert Threads.snapshot(t.id).status == "idle"
     end
 

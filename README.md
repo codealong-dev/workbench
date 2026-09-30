@@ -19,6 +19,7 @@ A local-first workbench for running coding agents in parallel. A Phoenix app run
 | M7 remote machine | Done: `WB_BIND`/`WB_ORIGINS`, one-time login link for other machines, SSH "Open in", Push + Open PR. See [docs/remote.md](docs/remote.md) |
 | M8 several machines | Next: one UI, threads on several nodes over Tailscale |
 | M9 Codex | Done: `codex app-server` over JSON-RPC from Elixir; streaming, approvals (commands, file patches, permissions), interrupt, resume, modes |
+| Questions + terminals | Done: AskUserQuestion (Claude) and request_user_input (Codex) as an answer card; real shells (PTY) in the worktree in the right panel |
 | File tree + changes panel | Done: right panel with Files (worktree tree) and Changes tabs, diff/file tabs in a middle pane, +a −d pill opens the diff |
 | Sidebar + sessions | Done: Fluid Functionalism sidebar (inset, no icon rail, hover-peek, `[` toggles, drag to resize), search (⌘K), per-project filter, several Claude/Codex sessions per worktree as a tree, theme toggle |
 | M10 polish | Next |
@@ -44,6 +45,10 @@ Add a project (any local git repo), then press **N** or **+** for a new thread. 
 **Sessions.** A thread's **⋮** menu adds another Claude or Codex session to the same worktree and branch (no new worktree, no setup), so you can get a second opinion or split work between agents on one branch. Sessions show nested under their thread. The number on a row is how many messages you've sent. **Branch thread** (the ↳ icon) is a placeholder for now.
 
 Archiving a thread stops the agent, runs teardown and deletes the worktree; its sessions are archived with it. The branch is kept. Archiving a session only stops and hides it.
+
+**Questions.** When an agent asks you something (Claude's AskUserQuestion, Codex's request_user_input), the thread shows a card with the options, multi-select where the agent allows it, and a free-text "Other". **Skip** tells the agent to go on without an answer. What you picked stays in the timeline.
+
+**Terminals.** The right panel's **Terminal** tab runs real shells (your login shell on a PTY) in the thread's worktree. Sessions of a thread share its terminals, they keep running when you close the tab or reload (the last 256 KB of output is replayed), and archiving the thread closes them. ``Ctrl+` `` opens the terminal, or moves to the next one if a terminal already has focus; ``Ctrl+Shift+` `` opens a new one.
 
 **Sidebar keys:** `[` hides or shows the sidebar (hover the left edge to peek while hidden), ⌘K / Ctrl+K searches threads by title, branch, agent or project, `N` opens a new thread.
 

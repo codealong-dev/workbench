@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ChevronRight, CircleAlert, LoaderCircle, SquareTerminal, FileText, FilePen, Search, Globe, ShieldCheck, Wrench } from "lucide-react";
+import { ChevronRight, CircleAlert, LoaderCircle, MessageCircleQuestion, SquareTerminal, FileText, FilePen, Search, Globe, ShieldCheck, Wrench } from "lucide-react";
+import { AnsweredQuestions, questionsOf } from "./question-card";
 import { cn } from "@/lib/utils";
 import type { ToolItem } from "@/contracts";
 
@@ -8,6 +9,7 @@ type Input = Record<string, unknown>;
 const str = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : JSON.stringify(v));
 
 function icon(name: string) {
+  if (name === "AskUserQuestion") return MessageCircleQuestion;
   if (name === "Bash") return SquareTerminal;
   if (name === "Patch") return FilePen;
   if (name === "Permissions") return ShieldCheck;
@@ -68,6 +70,10 @@ export function toolSummary(name: string, input: unknown): string {
         .filter(([, v]) => v != null)
         .map(([k]) => k)
         .join(", ");
+    case "AskUserQuestion":
+      return questionsOf(input)
+        .map((q) => q.header || q.question)
+        .join(", ");
     case "Bash":
       return str(i.command);
     case "Read":
@@ -93,6 +99,8 @@ export function toolSummary(name: string, input: unknown): string {
 
 function Body({ item }: { item: ToolItem }) {
   const i = (item.input ?? {}) as Input;
+
+  if (item.name === "AskUserQuestion") return <AnsweredQuestions input={item.input} answers={item.answers} />;
 
   if (item.name === "Patch") {
     return (
@@ -135,6 +143,17 @@ function Body({ item }: { item: ToolItem }) {
   );
 }
 
+// an answered question reads better as its answers
+function summaryOf(item: ToolItem): string {
+  if (item.name === "AskUserQuestion" && item.answers) {
+    const picked = questionsOf(item.input)
+      .map((q) => (q.secret ? "" : (item.answers?.[q.id] ?? []).join(", ")))
+      .filter(Boolean);
+    return picked.length ? picked.join(" · ") : "Skipped";
+  }
+  return toolSummary(item.name, item.input);
+}
+
 export function ToolCall({ item }: { item: ToolItem }) {
   const [open, setOpen] = useState(false);
   const Icon = icon(item.name);
@@ -150,7 +169,7 @@ export function ToolCall({ item }: { item: ToolItem }) {
         <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
         <Icon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="shrink-0 font-medium">{item.name}</span>
-        <span className="min-w-0 truncate font-mono text-[12px] text-muted-foreground">{toolSummary(item.name, item.input)}</span>
+        <span className="min-w-0 truncate font-mono text-[12px] text-muted-foreground">{summaryOf(item)}</span>
         <span className="ml-auto shrink-0">
           {running ? (
             <LoaderCircle className="size-3.5 animate-spin text-muted-foreground" />

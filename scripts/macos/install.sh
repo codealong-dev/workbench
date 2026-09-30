@@ -14,6 +14,9 @@ release="$root/server/_build/prod/rel/workbench"
 [ "$(uname)" = "Darwin" ] || { echo "install.sh is for macOS (launchd). On Linux, run the release under systemd."; exit 1; }
 
 echo "==> building the sidecar and web UI"
+# pick up dependencies added since the last install
+(cd "$root/sidecar" && npm install --no-audit --no-fund --silent)
+(cd "$root/web" && npm install --no-audit --no-fund --silent)
 make -C "$root" sidecar web >/dev/null
 
 echo "==> building the release"

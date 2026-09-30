@@ -8,7 +8,7 @@ import { fetchFilePatch, useDiff } from "@/hooks/use-diff";
 import { useFiles } from "@/hooks/use-files";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useStore } from "@/store";
-import type { Decision, Editor, PushResult, Thread } from "@/contracts";
+import type { Answers, Decision, Editor, PushResult, Thread } from "@/contracts";
 import { isRemote, remoteEditorUrl } from "@/lib/remote";
 import { Timeline } from "./timeline";
 import { StatusDot } from "./status-dot";
@@ -16,15 +16,17 @@ import { MODES } from "./modes";
 import { Counts } from "./diff-view";
 import { SidePanel, type PanelTab } from "./side-panel";
 import { Viewer, tabKey, type ViewerTab } from "./viewer";
+import { isAppShortcut } from "./terminal-view";
 import { OpenMenu, preferredEditor } from "./open-menu";
 import { ArchiveDialog } from "./archive-dialog";
 import { InsetTrigger, threadLabel } from "./sidebar";
 
 const PANEL_KEY = "wb.panel";
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const readPanel = (): PanelTab | null => {
   const v = localStorage.getItem(PANEL_KEY);
-  if (v === "files" || v === "changes") return v;
+  if (v === "files" || v === "changes" || v === "terminal") return v;
   // first run: open on wide screens
   return v === null && window.innerWidth >= 1280 ? "changes" : null;
 };
@@ -52,6 +54,21 @@ export function ThreadView({ id }: { id: string }) {
     if (tab) setPanelTab(tab);
     localStorage.setItem(PANEL_KEY, tab ?? "off");
   };
+
+  // Ctrl+` opens the terminal (again: next terminal), Ctrl+Shift+` a new one
+  const [termCycle, setTermCycle] = useState(0);
+  const [termSpawn, setTermSpawn] = useState(0);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!isAppShortcut(e)) return;
+      e.preventDefault();
+      setPanel("terminal");
+      if (e.shiftKey || e.key === "~") setTermSpawn((n) => n + 1);
+      else setTermCycle((n) => n + 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // middle pane: the diff and opened files, as tabs
   const [tabs, setTabs] = useState<ViewerTab[]>([]);
@@ -125,8 +142,8 @@ export function ThreadView({ id }: { id: string }) {
   );
 
   const decide = useCallback(
-    async (request_id: string, decision: Decision) => {
-      await push(channel.current, "approve", { request_id, decision });
+    async (request_id: string, decision: Decision, answers?: Answers) => {
+      await push(channel.current, "approve", { request_id, decision, ...(answers ? { answers } : {}) });
     },
     [channel],
   );
@@ -215,7 +232,7 @@ export function ThreadView({ id }: { id: string }) {
 
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-[340px] flex-1 flex-col">
-          <Timeline items={ts.items} live={ts.live} pending={ts.pending} status={status} onDecide={decide} />
+          <Timeline items={ts.items} live={ts.live} pending={ts.pending} status={status} onDecide={decide} agent={capitalize(AGENT_NAMES[thread.provider] ?? "the agent")} />
 
           <div className="mx-auto w-full max-w-3xl px-6 pb-5">
             {sendError && <div className="mb-2 text-[12px] text-destructive">{sendError}</div>}
@@ -271,6 +288,9 @@ export function ThreadView({ id }: { id: string }) {
               const r = await push(channel.current, "push");
               return r.ok ? { ok: true, result: r.payload as PushResult } : { ok: false, error: r.reason };
             }}
+            channel={channel}
+            terminalCycle={termCycle}
+            terminalSpawn={termSpawn}
           />
         )}
       </div>

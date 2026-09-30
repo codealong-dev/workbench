@@ -13,6 +13,8 @@ defmodule Workbench.Application do
       {Phoenix.PubSub, name: Workbench.PubSub},
       {Registry, keys: :unique, name: Workbench.Threads.Registry},
       {DynamicSupervisor, name: Workbench.Threads.Supervisor, strategy: :one_for_one},
+      {Registry, keys: :unique, name: Workbench.Terminals.Registry},
+      {DynamicSupervisor, name: Workbench.Terminals.Supervisor, strategy: :one_for_one},
       WorkbenchWeb.Endpoint
     ]
 
