@@ -1,5 +1,5 @@
 import { useEffect, useState, type RefObject } from "react";
-import { TextQuote } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 
 /**
  * Select text in an answer (anything marked `data-quotable`) and a "Reply"
@@ -67,11 +67,12 @@ export function QuoteSelection({
         window.getSelection()?.removeAllRanges();
         setAt(null);
       }}
-      className="absolute z-20 flex h-7 items-center gap-1.5 rounded-lg bg-surface-4 px-2.5 text-[12px] font-medium text-foreground shadow-surface-4 hover:bg-surface-5"
-      style={{ left: Math.max(at.x - 40, 8), top: at.y }}
+      aria-label="Reply to selection"
+      title="Reply to selection"
+      className="absolute z-20 flex size-7 items-center justify-center rounded-lg bg-surface-4 text-foreground shadow-surface-4 hover:bg-surface-5"
+      style={{ left: Math.max(at.x - 14, 8), top: at.y }}
     >
-      <TextQuote className="size-3.5" />
-      Reply
+      <MessageCircle className="size-3.5" />
     </button>
   );
 }
