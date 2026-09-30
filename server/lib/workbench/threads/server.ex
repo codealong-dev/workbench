@@ -195,7 +195,7 @@ defmodule Workbench.Threads.Server do
       st =
         if st.pstate do
           {:ok, p} = st.provider.set_mode(st.pstate, mode)
-          %{st | pstate: p}
+          %{st | pstate: p} |> allow_covered(mode)
         else
           st
         end
@@ -422,6 +422,21 @@ defmodule Workbench.Threads.Server do
   defp emit(st, ev) do
     Logger.debug("unknown event #{inspect(ev["type"])}")
     st
+  end
+
+  # Switching to a more permissive mode also answers the approvals it
+  # covers: the agent is waiting on them, and the new mode says yes.
+  @edit_tools ~w(Edit Write MultiEdit NotebookEdit Patch)
+  defp covered?("bypassPermissions", tool), do: tool != "AskUserQuestion"
+  defp covered?("acceptEdits", tool), do: tool in @edit_tools
+  defp covered?(_, _), do: false
+
+  defp allow_covered(st, mode) do
+    for {rid, %{"tool" => tool}} <- st.pending, covered?(mode, tool), reduce: st do
+      st ->
+        {:ok, p} = st.provider.respond(st.pstate, rid, "allow", nil)
+        resolve(%{st | pstate: p}, rid, "allow")
+    end
   end
 
   defp valid_answers?(answers) when is_map(answers) and map_size(answers) <= 20 do

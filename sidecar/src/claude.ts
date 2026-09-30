@@ -45,6 +45,10 @@ function start(op: Extract<Op, { op: "start" }>) {
       ...(op.resume ? { resume: op.resume } : {}),
       ...(op.model ? { model: op.model } : {}),
       permissionMode: op.mode ?? "default",
+      // Without this the CLI refuses bypassPermissions, both at start and when
+      // the user switches to it mid-conversation (setPermissionMode rejects).
+      // The mode itself is still whatever the user picked.
+      allowDangerouslySkipPermissions: true,
       ...(claudeBin ? { pathToClaudeCodeExecutable: claudeBin } : {}),
       systemPrompt: { type: "preset", preset: "claude_code" },
       settingSources: ["user", "project", "local"], // CLAUDE.md, skills, hooks, permissions
@@ -133,7 +137,10 @@ async function handle(op: Op) {
     case "approve":
       return pending.get(op.request_id)?.({ decision: op.decision, answers: op.answers });
     case "set_mode":
-      return q?.setPermissionMode(op.mode).catch((e) => log("set_mode failed:", e?.message ?? e));
+      return q?.setPermissionMode(op.mode).catch((e) => {
+        log("set_mode failed:", e?.message ?? e);
+        emit({ type: "error", message: `Could not switch to ${op.mode}: ${e?.message ?? e}`, fatal: false });
+      });
     case "stop":
       return stop(0);
   }

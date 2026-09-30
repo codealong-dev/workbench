@@ -161,4 +161,33 @@ defmodule Workbench.ServerTest do
     assert %{"output" => "answers=" <> json, "answers" => ^answers} = Enum.find(Items.last(t.id), &(&1["kind"] == "tool" and &1["name"] == "AskUserQuestion"))
     assert Jason.decode!(json) == answers
   end
+
+  test "switching to a permissive mode answers the approvals it covers", %{dir: dir} do
+    t = create_thread(dir)
+    Threads.subscribe(t.id)
+    :ok = Threads.send_message(t.id, "please approve this")
+    [req | _] = collect_until(type?("approval.requested")) |> Enum.reverse()
+    assert req["tool"] == "Bash"
+
+    # acceptEdits doesn't cover Bash: still waiting
+    :ok = Threads.set_mode(t.id, "acceptEdits")
+    assert [%{"request_id" => rid}] = Threads.snapshot(t.id).pending
+    assert rid == req["request_id"]
+
+    :ok = Threads.set_mode(t.id, "bypassPermissions")
+    events = collect_until(type?("turn.completed"))
+    assert Enum.any?(events, &(&1["type"] == "approval.resolved" and &1["decision"] == "allow" and &1["request_id"] == rid))
+    assert [%{"is_error" => false}] = for(%{"type" => "tool.completed"} = e <- events, do: e)
+    assert Threads.snapshot(t.id).pending == []
+    assert Threads.get(t.id).mode == "bypassPermissions"
+  end
+
+  test "a question is never auto-answered by a mode switch", %{dir: dir} do
+    t = create_thread(dir)
+    Threads.subscribe(t.id)
+    :ok = Threads.send_message(t.id, "ask me")
+    collect_until(type?("approval.requested"))
+    :ok = Threads.set_mode(t.id, "bypassPermissions")
+    assert [%{"tool" => "AskUserQuestion"}] = Threads.snapshot(t.id).pending
+  end
 end
