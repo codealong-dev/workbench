@@ -407,6 +407,7 @@ export function SidePanel(props: {
   const { width, dragging, onMouseDown } = useResizableWidth("wb.panelWidth", 300, 220, 560, "left");
   const changes = useMemo(() => new Map((diff?.files ?? []).map((f) => [f.path, f])), [diff]);
   const count = diff?.files.length ?? 0;
+  const iconOnly = width < 340;
 
   return (
     <aside className={cn("relative flex min-h-0 shrink-0 flex-col", PANEL, "overflow-visible")} style={{ width }} aria-label="Files and changes">
@@ -414,9 +415,9 @@ export function SidePanel(props: {
       <div className="flex shrink-0 items-center border-b border-border px-2 py-1.5">
         <Tabs value={tab} onValueChange={(v) => onTab(v as PanelTab)} size="compact">
           <TabsList>
-            <TabItem value="files" icon={Files} label="Files" />
-            <TabItem value="changes" icon={FileDiffIcon} label={count ? `Changes ${count}` : "Changes"} />
-            <TabItem value="terminal" icon={SquareTerminal} label="Terminal" />
+            <TabItem value="files" icon={Files} label="Files" iconOnly={iconOnly} />
+            <TabItem value="changes" icon={FileDiffIcon} label={count ? `Changes ${count}` : "Changes"} iconOnly={iconOnly} />
+            <TabItem value="terminal" icon={SquareTerminal} label="Terminal" iconOnly={iconOnly} />
           </TabsList>
         </Tabs>
       </div>

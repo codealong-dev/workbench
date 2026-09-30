@@ -166,6 +166,7 @@ export function Viewer(props: {
   diff: DiffResult | null;
   diffError: string | null;
   focus: { path: string; n: number } | null;
+  onActiveChange?: (path: string | null) => void;
   loadPatch: (path: string) => Promise<string | null>;
   onOpenInEditor: (path: string) => void;
 }) {
@@ -180,7 +181,7 @@ export function Viewer(props: {
         <TabStrip tabs={tabs} active={active} onActivate={props.onActivate} onClose={props.onClose} changeCount={props.diff?.files.length ?? 0} />
       </div>
       {current?.kind === "diff" && (
-        <DiffView diff={props.diff} error={props.diffError} focus={props.focus} onOpenFile={props.onOpenInEditor} loadFile={props.loadPatch} />
+        <DiffView diff={props.diff} error={props.diffError} focus={props.focus} onActive={props.onActiveChange} onOpenFile={props.onOpenInEditor} loadFile={props.loadPatch} />
       )}
       {current?.kind === "file" && <FileView key={current.path} channel={channel} path={current.path} version={props.version} onOpenInEditor={props.onOpenInEditor} />}
     </section>

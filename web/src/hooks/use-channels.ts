@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Channel } from "phoenix";
 import { socket } from "@/socket";
 import { useStore } from "@/store";
-import type { HostInfo, Project, Snapshot, Thread, ThreadEvent } from "@/contracts";
+import type { HostInfo, PlanUsage, Project, Snapshot, Thread, ThreadEvent } from "@/contracts";
 
 type Reply = { ok: true; payload?: unknown } | { ok: false; reason: string };
 
@@ -60,9 +60,23 @@ export function useThreadChannel(id: string | null) {
     ref.current = ch;
     const { hydrate, apply } = useStore.getState();
 
+    let provider: string | null = null;
+    const setUsage = (usage: PlanUsage | null) => {
+      if (provider) useStore.getState().setUsage(provider, usage);
+    };
+
     ch.on("event", (p: ThreadEvent | { batch: ThreadEvent[] }) => apply("batch" in p ? p.batch : [p]));
+    ch.on("usage", ({ usage }: { usage: PlanUsage | null }) => setUsage(usage));
     ch.join()
-      .receive("ok", (snap: Snapshot) => hydrate(snap))
+      .receive("ok", (snap: Snapshot) => {
+        hydrate(snap);
+        provider = snap.thread.provider;
+        // what the server has now; asking to refresh may start the agent, and the fresh numbers arrive as a `usage` push
+        void push(ch, "usage", { refresh: true }).then((r) => {
+          const usage = r.ok ? (r.payload as { usage: PlanUsage | null }).usage : null;
+          if (usage) setUsage(usage);
+        });
+      })
       .receive("error", (e: { reason?: string }) => setJoinError(e?.reason ?? "join failed"));
 
     return () => {

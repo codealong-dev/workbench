@@ -163,6 +163,22 @@ export interface TerminalInfo {
   created_at: string;
 }
 
+/** One plan limit of a provider (Claude: the 5-hour session, the weekly caps). */
+export interface UsageWindow {
+  id: string;
+  label: string;
+  /** 0-100 */
+  used_pct: number;
+  /** ISO 8601 */
+  resets_at: string | null;
+}
+
+/** How much of a provider's plan limits is used. */
+export interface PlanUsage {
+  plan: string | null;
+  windows: UsageWindow[];
+}
+
 /** A model a provider offers, in one shape for every provider. */
 export interface ModelOption {
   id: string;

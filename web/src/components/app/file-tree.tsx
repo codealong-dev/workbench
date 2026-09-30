@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import { ChevronRight, Folder, FolderOpen, type LucideIcon } from "lucide-react";
 import { FluidHoverHighlight } from "@/components/ui/fluid-hover-highlight";
@@ -54,7 +54,7 @@ const RowView = memo(function RowView(props: {
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onActivate(row))}
       className={cn(
         "group/row relative flex h-7 cursor-pointer items-center gap-1.5 rounded-md pr-1.5 text-[13px] outline-none select-none",
-        selected && "bg-active",
+        selected && "bg-active before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-foreground",
         row.kind === "label" && "text-muted-foreground",
       )}
       style={{ paddingLeft: 6 + row.depth * INDENT }}
@@ -82,6 +82,10 @@ const RowView = memo(function RowView(props: {
 export function TreeRows({ rows, selected, onActivate, label }: { rows: Row[]; selected?: string | null; onActivate: (row: Row) => void; label: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const hover = useFluidHover(ref, { gapClick: false });
+  // keep the selected row in view, e.g. as the diff scrolls through files
+  useEffect(() => {
+    ref.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
   return (
     <div
       ref={ref}
