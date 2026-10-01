@@ -132,7 +132,16 @@ function toolResults(m: Any): Event[] {
     .filter((b: Any) => b?.type === "tool_result" || b?.type === "mcp_tool_result")
     .map((b: Any) => {
       const [output, truncated] = truncate(stringify(b.content));
-      return { type: "tool.completed", item_id: b.tool_use_id, output, truncated, is_error: Boolean(b.is_error) };
+      const images = imagesOf(b.content);
+      return {
+        type: "tool.completed",
+        item_id: b.tool_use_id,
+        output,
+        truncated,
+        is_error: Boolean(b.is_error),
+        // e.g. Read on a picture; the server stores them and shows them in the timeline
+        ...(images.length ? { images } : {}),
+      };
     });
 }
 
@@ -173,6 +182,13 @@ function stringify(c: Any): string {
     return c.map((p) => (p?.type === "text" ? p.text : p?.type === "image" ? "[image]" : JSON.stringify(p))).join("\n");
   }
   return JSON.stringify(c);
+}
+
+function imagesOf(c: Any): { data: string; mime: string }[] {
+  if (!Array.isArray(c)) return [];
+  return c
+    .filter((p) => p?.type === "image" && p.source?.type === "base64" && typeof p.source.data === "string")
+    .map((p) => ({ data: p.source.data, mime: p.source.media_type }));
 }
 
 function truncate(s: string): [string, boolean] {

@@ -17,6 +17,9 @@ interface ChatMessageProps
   files?: File[];
   /** Side length of each attachment thumbnail in pixels. Defaults to 64. */
   thumbnailSize?: number;
+  /** Attachments that aren't `File`s (e.g. already-uploaded images), rendered
+   *  where `files` would be, above the bubble. */
+  media?: ReactNode;
   /** Timestamp shown in the hover-revealed meta row, before the actions.
    *  User-message only — ignored on assistant replies. Caller pre-formats it
    *  (e.g. `"Wednesday 6:08 PM"`). */
@@ -38,7 +41,7 @@ interface ChatMessageProps
 // lets earlier messages slide up smoothly when a new one is appended.
 const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
   (
-    { from, files, thumbnailSize = 64, time, actions, children, size, className, ...props },
+    { from, files, thumbnailSize = 64, media, time, actions, children, size, className, ...props },
     ref
   ) => {
     const shape = useShape();
@@ -80,6 +83,7 @@ const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
             ))}
           </div>
         )}
+        {media}
         {children != null && children !== "" && (
           <div
             className={cn(

@@ -11,6 +11,8 @@ defmodule Workbench.Application do
       Workbench.Repo,
       {Ecto.Migrator, repos: [Workbench.Repo], skip: !Application.get_env(:workbench, :migrate_on_boot, true)},
       {Phoenix.PubSub, name: Workbench.PubSub},
+      {Task.Supervisor, name: Workbench.TaskSupervisor},
+      Workbench.Models,
       {Registry, keys: :unique, name: Workbench.Threads.Registry},
       {DynamicSupervisor, name: Workbench.Threads.Supervisor, strategy: :one_for_one},
       {Registry, keys: :unique, name: Workbench.Terminals.Registry},

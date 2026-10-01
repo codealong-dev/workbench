@@ -1,13 +1,14 @@
 // Claude sidecar: one process per thread, spawned by Workbench.Provider.Claude
 // with cwd = the thread's worktree.
 //
-// stdin:  one JSON op per line: start, send, interrupt, approve, set_mode, stop
+// stdin:  one JSON op per line: start, send {text, images?: [{path, mime}]}, interrupt, approve, set_mode, stop
 // stdout: one normalized event per line (nothing else is ever written there)
 // stderr: logs
 //
 // Uses the Claude Code login on this machine (subscription or API key), like
 // running `claude` in a terminal. Personal use only.
 
+import { readFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { query, type EffortLevel, type PermissionMode, type Query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -24,7 +25,7 @@ type Op =
   | { op: "set_model"; model?: string | null; effort?: EffortLevel | null }
   | { op: "models" }
   | { op: "usage" }
-  | { op: "send"; text: string }
+  | { op: "send"; text: string; images?: { path: string; mime: string }[] }
   | { op: "interrupt" }
   | { op: "approve"; request_id: string; decision: Decision; answers?: Record<string, string[]> }
   | { op: "set_mode"; mode: PermissionMode }
@@ -124,11 +125,19 @@ async function usage() {
   }
 }
 
-function send(text: string) {
+// Attached images go in as image blocks ahead of the text, like a paste in `claude`.
+async function send(text: string, images: { path: string; mime: string }[] = []) {
   if (!q) return emit({ type: "error", message: "send before start", fatal: false });
   st.turnId = randomUUID();
   emit({ type: "turn.started", turn_id: st.turnId });
-  inbox.push({ type: "user", message: { role: "user", content: text }, parent_tool_use_id: null } as SDKUserMessage);
+  const pictures = await Promise.all(
+    images.map(async (img) => ({
+      type: "image" as const,
+      source: { type: "base64" as const, media_type: img.mime, data: (await readFile(img.path)).toString("base64") },
+    })),
+  );
+  const content = pictures.length ? [...pictures, ...(text ? [{ type: "text" as const, text }] : [])] : text;
+  inbox.push({ type: "user", message: { role: "user", content }, parent_tool_use_id: null } as SDKUserMessage);
 }
 
 async function interrupt() {
@@ -152,7 +161,7 @@ async function handle(op: Op) {
     case "start":
       return start(op);
     case "send":
-      return send(op.text);
+      return send(op.text, op.images);
     case "interrupt":
       return interrupt();
     case "approve":

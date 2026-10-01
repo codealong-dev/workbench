@@ -192,7 +192,7 @@ defmodule Workbench.ServerTest do
   end
 
   test "models come from the provider (then the cache); set_model persists", %{dir: dir} do
-    :persistent_term.erase({Workbench.Models, "fake"})
+    Workbench.Models.forget("fake")
     t = create_thread(dir)
     assert {:ok, [%{"id" => "fake-smart", "efforts" => [_, _, _]}, %{"id" => "fake-fast", "efforts" => []}]} = Threads.models(t.id)
     assert Workbench.Models.get("fake") |> length() == 2
@@ -202,6 +202,6 @@ defmodule Workbench.ServerTest do
     assert_receive {:thread_upserted, %{model: "fake-smart", effort: "high"}}
     :ok = Threads.set_model(t.id, nil, nil)
     assert %{model: nil, effort: nil} = Threads.get(t.id)
-    :persistent_term.erase({Workbench.Models, "fake"})
+    Workbench.Models.forget("fake")
   end
 end

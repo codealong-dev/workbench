@@ -30,7 +30,7 @@ import { editorKey, useEditors } from "@/lib/editor-state";
 const theme: DockviewTheme = {
   name: "workbench",
   className: "dockview-theme-workbench",
-  gap: 3,
+  gap: 5,
 };
 
 const PANEL_KEY = "wb.panel";
@@ -70,11 +70,14 @@ export function WorkspaceView({
   selectedId,
   connected,
   onSelect,
+  hidden = false,
 }: {
   rootId: string;
   selectedId: string;
   connected: boolean;
   onSelect: (id: string) => void;
+  /** Kept mounted behind another page (settings): its keys are off. */
+  hidden?: boolean;
 }) {
   const { channel, joinError } = useThreadChannel(rootId);
   const allThreads = useStore((s) => s.threads);
@@ -278,6 +281,7 @@ export function WorkspaceView({
 
   // -- keys --------------------------------------------------------------------
   useEffect(() => {
+    if (hidden) return;
     const onKey = (e: KeyboardEvent) => {
       if (isAppShortcut(e)) {
         // Ctrl+`: next terminal tab (or a new one); Ctrl+Shift+`: new terminal
@@ -305,7 +309,7 @@ export function WorkspaceView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [api, newTerminal]);
+  }, [api, newTerminal, hidden]);
 
   const onPush = async () => {
     const r = await push(channel.current, "push");

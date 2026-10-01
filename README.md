@@ -51,13 +51,17 @@ Archiving a thread stops the agent, runs teardown and deletes the worktree; its 
 
 **Reply to a part of an answer.** Select text in an agent's answer (or its thinking) and click the speech-bubble button next to it: the selection is attached above the message box, and goes out as a quote in front of what you type. It's plain markdown in the message, so it works the same with any agent.
 
+**Images.** Drop images anywhere on a chat, paste a screenshot into the message box, or use the image button under it (PNG, JPEG, GIF, WebP; up to 10 per message; big ones are scaled down to 2000 px). They go to the agent as real image input (Claude image blocks, Codex `localImage`), and show above your message; click one to see it full size. Images an agent opens or makes (Claude reading a picture, Codex's view_image and image generation) show under that tool call. They're kept in `~/.workbench/uploads/<thread>` and deleted when the thread is archived.
+
 **Questions.** When an agent asks you something (Claude's AskUserQuestion, Codex's request_user_input), the thread shows a card with the options, multi-select where the agent allows it, and a free-text "Other". **Skip** tells the agent to go on without an answer. What you picked stays in the timeline.
 
 **Terminals.** Terminal tabs run real shells (your login shell on a PTY) in the thread's worktree. They keep running when you close the tab or reload (the last 256 KB of output is replayed), and archiving the thread closes them. ``Ctrl+` `` goes to the next terminal tab (opening one if there's none); ``Ctrl+Shift+` `` opens a new one.
 
 **Workspace keys:** ⌘P open a file, ⌘\ split the current tab to the right, Ctrl+W close it, ⌘S save.
 
-**Model and effort.** Under the message box: the model, its effort level and the permission mode, for Claude and Codex alike. The list comes from the agent itself (Claude Code's models, Codex's `model/list`) the first time you open it; a change applies from the next response.
+**Model and effort.** Under the message box: the model, its effort level and the permission mode, for Claude and Codex alike. The model picker offers your loadout for that lab (see Settings), or every model if you haven't picked one. The list comes from the agent itself (Claude Code's models, Codex's `model/list`) and is kept on the server across restarts; a change applies from the next response.
+
+**Settings** (⌘, or the gear at the bottom of the sidebar) take over the sidebar with their own sections. **Models** turns labs on or off (Anthropic through Claude Code, OpenAI through Codex, the Fake agent); a lab that's off is hidden when you start a thread or a chat. For each lab you pick a loadout of up to three models, dragged into the order the picker shows them. To list a lab's models without a thread, Workbench starts its agent just to ask, then closes it (no turn, nothing spent). **Appearance** has the theme, **Keyboard shortcuts** the keys. Settings live on the server, so every browser shares them (the theme is per browser).
 
 **Sidebar keys:** `[` hides or shows the sidebar (hover the left edge to peek while hidden), ⌘K / Ctrl+K searches threads by title, branch, agent or project, `N` opens a new thread.
 

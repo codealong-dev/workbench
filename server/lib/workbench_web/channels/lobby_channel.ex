@@ -9,12 +9,15 @@ defmodule WorkbenchWeb.LobbyChannel do
       (or `{cwd, ...}` without a project, as in M1; or `{parent_id, provider, ...}`
       for another session in an existing thread's worktree)
     * `thread.archive` `{id}` -> ok (same as the thread channel's `archive`)
+    * `settings.put` `{key, value}` -> `{settings}` (see Workbench.Settings)
+    * `models.list` `{provider, refresh?}` -> `{models}`; may start the agent
+      just to ask, so the reply can take a few seconds
     * pushes: `project.upserted`, `thread.upserted`, `thread.status`,
-      `thread.messages` `{id, count}`, `thread.archived`
+      `thread.messages` `{id, count}`, `thread.archived`, `settings.updated`
   """
   use Phoenix.Channel
 
-  alias Workbench.{Projects, Threads}
+  alias Workbench.{Models, Projects, Settings, Threads}
   alias Workbench.Projects.Project
   alias Workbench.Threads.Thread
   alias WorkbenchWeb.ChannelHelpers, as: H
@@ -27,7 +30,9 @@ defmodule WorkbenchWeb.LobbyChannel do
      %{
        host: Workbench.Host.info(),
        projects: Enum.map(Projects.list(), &Project.to_json/1),
-       threads: Enum.map(Threads.list(), &Thread.to_json/1)
+       threads: Enum.map(Threads.list(), &Thread.to_json/1),
+       settings: Settings.all(),
+       models: Models.cached(Settings.providers())
      }, socket}
   end
 
@@ -92,6 +97,31 @@ defmodule WorkbenchWeb.LobbyChannel do
     end
   end
 
+  def handle_in("settings.put", %{"key" => key, "value" => value}, socket) when is_binary(key) do
+    case Settings.put(key, value) do
+      {:ok, settings} -> {:reply, {:ok, %{settings: settings}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: reason}}, socket}
+    end
+  end
+
+  # answered from a task: a probe must not hold up the lobby
+  def handle_in("models.list", %{"provider" => provider} = params, socket) do
+    if provider in Settings.providers() do
+      ref = socket_ref(socket)
+
+      Task.Supervisor.start_child(Workbench.TaskSupervisor, fn ->
+        case Models.list(provider, params["refresh"] == true) do
+          {:ok, models} -> reply(ref, {:ok, %{models: models}})
+          {:error, reason} -> reply(ref, {:error, %{reason: reason}})
+        end
+      end)
+
+      {:noreply, socket}
+    else
+      {:reply, {:error, %{reason: "unknown agent #{inspect(provider)}"}}, socket}
+    end
+  end
+
   def handle_in(event, _params, socket) do
     {:reply, {:error, %{reason: "unknown or malformed message: #{event}"}}, socket}
   end
@@ -114,6 +144,11 @@ defmodule WorkbenchWeb.LobbyChannel do
 
   def handle_info({:thread_archived, id}, socket) do
     push(socket, "thread.archived", %{id: id})
+    {:noreply, socket}
+  end
+
+  def handle_info({:settings, settings}, socket) do
+    push(socket, "settings.updated", settings)
     {:noreply, socket}
   end
 

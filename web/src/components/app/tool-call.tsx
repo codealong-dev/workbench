@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { ChevronRight, CircleAlert, LoaderCircle, MessageCircleQuestion, SquareTerminal, FileText, FilePen, Search, Globe, ShieldCheck, Wrench } from "lucide-react";
+import { ChevronRight, CircleAlert, LoaderCircle, MessageCircleQuestion, SquareTerminal, FileText, FilePen, Search, Globe, ShieldCheck, Wrench, ImageIcon } from "lucide-react";
 import { AnsweredQuestions, questionsOf } from "./question-card";
+import { ImageStrip } from "./images";
 import { cn } from "@/lib/utils";
 import type { ToolItem } from "@/contracts";
 
@@ -17,6 +18,7 @@ function icon(name: string) {
   if (name === "Edit" || name === "Write" || name === "MultiEdit" || name === "NotebookEdit") return FilePen;
   if (name === "Grep" || name === "Glob") return Search;
   if (name === "WebFetch" || name === "WebSearch") return Globe;
+  if (name === "ViewImage" || name === "ImageGen") return ImageIcon;
   return Wrench;
 }
 
@@ -89,6 +91,10 @@ export function toolSummary(name: string, input: unknown): string {
       return str(i.url);
     case "WebSearch":
       return str(i.query);
+    case "ViewImage":
+      return str(i.path);
+    case "ImageGen":
+      return str(i.prompt);
     case "Task":
     case "Agent":
       return str(i.description);
@@ -133,7 +139,7 @@ function Body({ item }: { item: ToolItem }) {
   return (
     <>
       {item.name !== "Read" && item.name !== "Grep" && item.name !== "Glob" && <pre className="wb-tool-pre text-muted-foreground">{input}</pre>}
-      {item.output != null && item.output !== "" && (
+      {item.output != null && item.output !== "" && !(item.images?.length && /^(\[image\]\s*)+$/.test(item.output)) && (
         <pre className={cn("wb-tool-pre", item.is_error && "text-destructive")}>
           {item.output}
           {item.truncated && <span className="text-muted-foreground">{"\n"}… truncated</span>}
@@ -183,6 +189,8 @@ export function ToolCall({ item }: { item: ToolItem }) {
           <Body item={item} />
         </div>
       )}
+      {/* what the agent looked at or made is worth seeing without opening the call */}
+      {item.images && item.images.length > 0 && <ImageStrip images={item.images} size={120} className="mt-1 mb-1 ml-7" />}
     </div>
   );
 }

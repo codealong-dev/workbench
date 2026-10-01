@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import type { IDockviewHeaderActionsProps, IDockviewPanelHeaderProps } from "dockview-react";
-import { FileSearch, Plus, Sparkle, SquareTerminal, X } from "lucide-react";
+import { FileSearch, Plus, SquareTerminal, X } from "lucide-react";
 import { DropdownContent, DropdownMenu, DropdownSeparator, DropdownTrigger } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
 import { StatusDot } from "@/components/app/status-dot";
 import { cn } from "@/lib/utils";
+import { useEnabledLabs, type Lab } from "@/lib/labs";
 import { useBufferTitle, useWorkspace, type Buffer } from "./buffers";
 import { editorKey, useEditors } from "@/lib/editor-state";
 
@@ -74,6 +75,7 @@ export function BufferTab({ api, params }: IDockviewPanelHeaderProps<Buffer>) {
 /** "+" at the end of every tab strip: new chat, terminal, or open a file. */
 export function NewBufferMenu({ group }: IDockviewHeaderActionsProps) {
   const ws = useWorkspace();
+  const agents = useEnabledLabs().filter((l): l is Lab & { id: "claude" | "codex" } => l.id !== "fake");
   const here = () => group.api.setActive();
   return (
     <div className="flex h-full items-center pr-1">
@@ -91,11 +93,12 @@ export function NewBufferMenu({ group }: IDockviewHeaderActionsProps) {
           }
         />
         <DropdownContent className="w-[220px] min-w-0" align="end" sideOffset={4}>
-          <MenuItem index={0} icon={Sparkle} label="New Claude chat" onSelect={() => void ws.newChat("claude")} />
-          <MenuItem index={1} icon={SquareTerminal} label="New Codex chat" onSelect={() => void ws.newChat("codex")} />
-          <MenuItem index={2} icon={SquareTerminal} label="New terminal" onSelect={() => void ws.newTerminal()} />
+          {agents.map((l, i) => (
+            <MenuItem key={l.id} index={i} icon={l.icon} label={`New ${l.agent} chat`} onSelect={() => void ws.newChat(l.id)} />
+          ))}
+          <MenuItem index={agents.length} icon={SquareTerminal} label="New terminal" onSelect={() => void ws.newTerminal()} />
           <DropdownSeparator />
-          <MenuItem index={3} icon={FileSearch} label="Open file…  ⌘P" onSelect={ws.quickOpen} />
+          <MenuItem index={agents.length + 1} icon={FileSearch} label="Open file…  ⌘P" onSelect={ws.quickOpen} />
         </DropdownContent>
       </DropdownMenu>
     </div>

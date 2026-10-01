@@ -9,6 +9,7 @@ import { ToolCall } from "./tool-call";
 import { ApprovalCard } from "./approval-card";
 import { QuestionCard } from "./question-card";
 import { QuoteSelection } from "./quote-selection";
+import { ImageStrip } from "./images";
 import { splitQuotes } from "@/lib/quotes";
 
 function Reasoning({ text, live }: { text: string; live: boolean }) {
@@ -54,14 +55,19 @@ function Row({ item, live }: { item: Item | LiveItem; live: boolean }) {
   switch (item.kind) {
     case "user_message": {
       const { quotes, body } = splitQuotes(item.text);
+      const images = "images" in item ? item.images : undefined;
       return (
-        <ChatMessage from="user">
-          {quotes.map((q, i) => (
-            <div key={i} className="mb-1.5 line-clamp-4 border-l-2 border-foreground/20 pl-2 text-[13px] whitespace-pre-wrap text-muted-foreground">
-              {q}
-            </div>
-          ))}
-          <div className="whitespace-pre-wrap">{body}</div>
+        <ChatMessage from="user" media={images?.length ? <ImageStrip images={images} className="justify-end" /> : undefined}>
+          {quotes.length > 0 || body ? (
+            <>
+              {quotes.map((q, i) => (
+                <div key={i} className="mb-1.5 line-clamp-4 border-l-2 border-foreground/20 pl-2 text-[13px] whitespace-pre-wrap text-muted-foreground">
+                  {q}
+                </div>
+              ))}
+              <div className="whitespace-pre-wrap">{body}</div>
+            </>
+          ) : null}
         </ChatMessage>
       );
     }

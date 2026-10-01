@@ -2,16 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import type { Channel } from "phoenix";
 import { socket } from "@/socket";
 import { useStore } from "@/store";
-import type { HostInfo, PlanUsage, Project, Snapshot, Thread, ThreadEvent } from "@/contracts";
+import type { HostInfo, ModelOption, PlanUsage, Project, Settings, Snapshot, Thread, ThreadEvent } from "@/contracts";
 
 type Reply = { ok: true; payload?: unknown } | { ok: false; reason: string; payload?: unknown };
 
 /** Push and resolve with the reply, so callers can surface errors. */
-export function push(channel: Channel | null, event: string, payload: object = {}): Promise<Reply> {
+export function push(channel: Channel | null, event: string, payload: object = {}, timeout?: number): Promise<Reply> {
   return new Promise((resolve) => {
     if (!channel) return resolve({ ok: false, reason: "not connected" });
     channel
-      .push(event, payload)
+      .push(event, payload, timeout)
       .receive("ok", (p) => resolve({ ok: true, payload: p }))
       .receive("error", (p: { reason?: string }) => resolve({ ok: false, reason: p?.reason ?? "error", payload: p }))
       .receive("timeout", () => resolve({ ok: false, reason: "timeout" }));
@@ -34,10 +34,14 @@ export function useLobby() {
     ch.on("thread.status", ({ id, status }) => setThreadStatus(id, status));
     ch.on("thread.messages", ({ id, count }) => useStore.getState().setMessageCount(id, count));
     ch.on("thread.archived", ({ id }) => removeThread(id));
+    ch.on("settings.updated", (s: Settings) => useStore.getState().setSettings(s));
     ch.onClose(() => setConnected(false));
     ch.onError(() => setConnected(false));
-    ch.join().receive("ok", (reply: { host: HostInfo; projects: Project[]; threads: Thread[] }) => {
-      useStore.getState().setHost(reply.host);
+    ch.join().receive("ok", (reply: { host: HostInfo; projects: Project[]; threads: Thread[]; settings: Settings; models: Record<string, ModelOption[]> }) => {
+      const s = useStore.getState();
+      s.setHost(reply.host);
+      s.setSettings(reply.settings);
+      for (const [provider, models] of Object.entries(reply.models ?? {})) if (!s.models[provider]) s.setModels(provider, models);
       setLobby(reply.projects, reply.threads);
       setConnected(true);
     });

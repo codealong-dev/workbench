@@ -67,6 +67,14 @@ test("large tool output is truncated", () => {
   assert.equal(ev.is_error, true);
 });
 
+test("images in a tool result come out for the timeline", () => {
+  const st = initialState();
+  const content = [{ type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0K" } }];
+  const [ev] = normalize(st, { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t", content }] } });
+  assert.equal(ev.output, "[image]");
+  assert.deepEqual(ev.images, [{ data: "iVBORw0K", mime: "image/png" }]);
+});
+
 test("interrupt and error results", () => {
   const st = initialState();
   st.interrupting = true;

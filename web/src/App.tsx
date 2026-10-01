@@ -7,11 +7,20 @@ import { cn } from "@/lib/utils";
 import { WorkspaceView } from "@/components/workspace/workspace";
 import { NewThreadDialog } from "@/components/app/new-thread-dialog";
 import { AddProjectDialog } from "@/components/app/add-project-dialog";
+import { SettingsSidebar } from "@/components/settings/settings-sidebar";
+import { SettingsView } from "@/components/settings/settings-view";
+import { DEFAULT_SECTION, isSection, type SectionId } from "@/components/settings/sections";
 import { useLobby } from "@/hooks/use-channels";
 import { useStore } from "@/store";
 import { hasToken } from "@/socket";
 
 const fromHash = () => location.hash.match(/^#\/t\/(.+)$/)?.[1] ?? null;
+// #/settings or #/settings/<section>; null when settings aren't open
+const settingsFromHash = (): SectionId | null => {
+  const m = location.hash.match(/^#\/settings(?:\/([\w-]+))?$/);
+  if (!m) return null;
+  return isSection(m[1]) ? m[1] : DEFAULT_SECTION;
+};
 
 const typing = (e: KeyboardEvent) => {
   const el = e.target as HTMLElement | null;
@@ -22,6 +31,9 @@ const typing = (e: KeyboardEvent) => {
 export default function App() {
   const { connected } = useLobby();
   const [selected, setSelected] = useState<string | null>(fromHash);
+  // Settings take over the sidebar and the main area; the thread stays
+  // selected (and its workspace mounted, hidden) for when you come back.
+  const [settings, setSettings] = useState<SectionId | null>(settingsFromHash);
   const [newThread, setNewThread] = useState<{ open: boolean; projectId?: string | null }>({ open: false });
   const [addProject, setAddProject] = useState(false);
   const threads = useStore((s) => s.threads);
@@ -35,15 +47,32 @@ export default function App() {
   // a worktree is one workspace, whichever of its sessions is picked
   const rootId = current ? (current.parent_id ?? current.id) : null;
 
+  const openSettings = useCallback((section?: SectionId) => {
+    location.hash = section ? `#/settings/${section}` : "#/settings";
+  }, []);
+  const closeSettings = useCallback(() => {
+    location.hash = selected ? `#/t/${selected}` : "";
+  }, [selected]);
+
   useEffect(() => {
-    const onHash = () => setSelected(fromHash());
+    const onHash = () => {
+      const section = settingsFromHash();
+      setSettings(section);
+      if (!section) setSelected(fromHash());
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  // Keyboard: N new thread. (Cmd+N and Cmd+1..9 belong to the browser.)
+  // Keyboard: N new thread, ⌘, settings. (Cmd+N and Cmd+1..9 belong to the browser.)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        if (settingsFromHash()) closeSettings();
+        else openSettings();
+        return;
+      }
       if (typing(e) || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "n") {
         e.preventDefault();
@@ -52,29 +81,39 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [openSettings, closeSettings]);
 
   // The selected thread was archived (here or elsewhere): drop the selection.
   useEffect(() => {
-    if (connected && selected && !threads.some((t) => t.id === selected)) select(null);
+    if (!connected || !selected || threads.some((t) => t.id === selected)) return;
+    if (settingsFromHash()) setSelected(null); // stay in settings
+    else select(null);
   }, [threads, connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <TooltipProvider>
       {/* No icon rail: collapsed means gone; hover the left edge to peek, "[" toggles. */}
       <SidebarProvider peek="hover" className="h-svh overflow-hidden">
-        <AppSidebar
-          selected={selected}
-          connected={connected}
-          onSelect={select}
-          onNewThread={(projectId) => setNewThread({ open: true, projectId })}
-          onAddProject={() => setAddProject(true)}
-        />
+        {settings ? (
+          <SettingsSidebar section={settings} onSection={openSettings} onBack={closeSettings} />
+        ) : (
+          <AppSidebar
+            selected={selected}
+            connected={connected}
+            onSelect={select}
+            onNewThread={(projectId) => setNewThread({ open: true, projectId })}
+            onAddProject={() => setAddProject(true)}
+            onSettings={() => openSettings()}
+          />
+        )}
         {/* no card of its own: the thread's panes are the cards (see panel.ts) */}
         <SidebarInset className="overflow-hidden peer-data-[variant=inset]:m-1 peer-data-[variant=inset]:peer-data-[side=left]:ml-0 peer-data-[variant=inset]:peer-data-[state=collapsed]:peer-data-[side=left]:ml-1 peer-data-[variant=inset]:rounded-none peer-data-[variant=inset]:bg-transparent peer-data-[variant=inset]:shadow-none">
+          {settings && <SettingsView section={settings} />}
           {selected && rootId ? (
-            <WorkspaceView key={rootId} rootId={rootId} selectedId={selected} connected={connected} onSelect={select} />
-          ) : selected && !connected ? (
+            <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", settings && "hidden")}>
+              <WorkspaceView key={rootId} rootId={rootId} selectedId={selected} connected={connected} onSelect={select} hidden={!!settings} />
+            </div>
+          ) : settings ? null : selected && !connected ? (
             <div className="flex-1" />
           ) : (
             <div className="flex flex-1 flex-col">

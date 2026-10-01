@@ -40,6 +40,62 @@ defmodule WorkbenchWeb.ChannelsTest do
     assert Threads.get(id).mode == "plan"
   end
 
+  # 1x1 PNG
+  @png "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+
+  test "images: attached, stored, served, and echoed back by the agent", %{dir: dir} do
+    home = Application.get_env(:workbench, :home)
+    Application.put_env(:workbench, :home, Path.join(dir, "home"))
+    on_exit(fn -> Application.put_env(:workbench, :home, home) end)
+
+    {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
+    %{id: id} = create_thread(dir)
+    {:ok, _snap, chan} = subscribe_and_join(socket, "thread:" <> id, %{})
+
+    ref = push(chan, "send", %{"text" => "", "images" => []})
+    assert_reply ref, :error, %{reason: "empty message"}
+
+    ref = push(chan, "send", %{"text" => "", "images" => [%{"data" => @png, "mime" => "image/svg+xml", "name" => "x.svg"}]})
+    assert_reply ref, :error, %{reason: "could not attach x.svg: unsupported image"}
+
+    # a client can't make the server copy a file from disk
+    ref = push(chan, "send", %{"text" => "", "images" => [%{"path" => "/etc/hosts.png", "mime" => "image/png"}]})
+    assert_reply ref, :error, %{reason: "could not attach an image: bad image"}
+
+    ref = push(chan, "send", %{"text" => "look", "images" => [%{"data" => @png, "mime" => "image/png", "name" => "dot.png"}]})
+    assert_reply ref, :ok
+
+    assert_push "event", %{"type" => "item.completed", "item" => %{"kind" => "user_message", "images" => [%{"name" => "dot.png", "url" => url}]}}
+    assert url =~ ~r"^/api/uploads/#{id}/[0-9a-f]{32}\.png$"
+
+    # the fake "reads" what you attached; only refs go out, never the bytes
+    assert_push "event", %{"type" => "tool.completed", "images" => [%{"url" => echoed} = ref_]}, 2_000
+    refute Map.has_key?(ref_, "data")
+    assert echoed != url
+    assert_push "event", %{"type" => "turn.completed"}, 3_000
+
+    assert [%{"images" => [_]}] = Enum.filter(Items.last(id), &(&1["kind"] == "user_message"))
+    assert [%{"images" => [_]}] = Enum.filter(Items.last(id), &(&1["kind"] == "tool" and &1["name"] == "Read"))
+
+    router = WorkbenchWeb.Router.init([])
+    get = fn path, ip -> WorkbenchWeb.Router.call(%{Plug.Test.conn(:get, path) | remote_ip: ip}, router) end
+
+    conn = get.(url, {127, 0, 0, 1})
+    assert conn.status == 200
+    assert conn.resp_body == Base.decode64!(@png)
+    assert ["image/png"] = Plug.Conn.get_resp_header(conn, "content-type")
+
+    assert get.(url, {100, 64, 1, 2}).status == 401
+    assert get.("/api/uploads/#{id}/..%2F..%2Ftoken", {127, 0, 0, 1}).status == 404
+    assert get.("/api/uploads/#{id}/#{String.duplicate("0", 32)}.png", {127, 0, 0, 1}).status == 404
+
+    [{pid, _}] = Registry.lookup(Workbench.Threads.Registry, id)
+    mon = Process.monitor(pid)
+    :ok = Threads.archive(id)
+    assert_receive {:DOWN, ^mon, _, _, _}, 2_000
+    refute File.exists?(Workbench.Uploads.dir(id))
+  end
+
   test "usage: cached answer on ask, refresh starts the agent and is pushed to the channel", %{dir: dir} do
     :persistent_term.erase({Workbench.Usage, "fake"})
     {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
@@ -141,6 +197,27 @@ defmodule WorkbenchWeb.ChannelsTest do
     {:ok, _, chan2} = subscribe_and_join(socket, "thread:" <> child.id, %{})
     ref = push(chan2, "layout.get", %{})
     assert_reply ref, :ok, %{layout: %{"grid" => %{"root" => 1}}}
+  end
+
+  test "lobby: settings and model lists without a thread" do
+    Workbench.Models.forget("fake")
+    {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
+    {:ok, %{settings: %{"labs" => %{"fake" => %{"enabled" => true}}}, models: models}, lobby} = subscribe_and_join(socket, "lobby", %{})
+    refute Map.has_key?(models, "fake")
+
+    ref = push(lobby, "settings.put", %{"key" => "labs", "value" => %{"fake" => %{"models" => ["fake-fast"]}}})
+    assert_reply ref, :ok, %{settings: %{"labs" => %{"fake" => %{"models" => ["fake-fast"]}}}}
+    assert_push "settings.updated", %{"labs" => %{"fake" => %{"models" => ["fake-fast"]}}}
+    ref = push(lobby, "settings.put", %{"key" => "labs", "value" => %{"fake" => %{"models" => ~w(a b c d)}}})
+    assert_reply ref, :error, %{reason: "fake: at most 3 models"}
+
+    # no thread: the agent is started just to ask, then the answer is cached
+    ref = push(lobby, "models.list", %{"provider" => "fake"})
+    assert_reply ref, :ok, %{models: [%{"id" => "fake-smart"}, %{"id" => "fake-fast"}]}, 3_000
+    assert [_, _] = Workbench.Models.get("fake")
+    ref = push(lobby, "models.list", %{"provider" => "nope"})
+    assert_reply ref, :error, %{reason: _}
+    Workbench.Models.forget("fake")
   end
 
   test "joining an unknown thread fails" do

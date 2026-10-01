@@ -76,26 +76,3 @@ export function UsageMeter({ provider }: { provider: string }) {
     </Tooltip>
   );
 }
-
-/** Under the model list: every plan window, per-model ones included. */
-export function UsageList({ provider }: { provider: string }) {
-  const usage = usePlanUsage(provider);
-  if (!usage || usage.windows.length === 0) return null;
-
-  return (
-    <div className="mt-1 border-t border-border px-2.5 pb-1.5 pt-2 text-[12px]">
-      <div className="mb-1 text-muted-foreground">Usage left{usage.plan ? ` · ${usage.plan}` : ""}</div>
-      {usage.windows.map((w) => {
-        const r = resetsIn(w.resets_at);
-        return (
-          <div key={w.id} className="flex items-baseline justify-between gap-3 py-0.5">
-            <span className="truncate text-foreground">{w.label}</span>
-            <span className={cn("shrink-0 tabular-nums", tone(left(w)))}>
-              {left(w)}%{r ? ` · ${r}` : ""}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}

@@ -46,8 +46,8 @@ defmodule Workbench.Provider.Claude do
   end
 
   @impl true
-  def send_turn(%{io: io} = p, text) do
-    Proc.write_json(io, %{op: "send", text: text})
+  def send_turn(%{io: io} = p, text, images) do
+    Proc.write_json(io, %{op: "send", text: text, images: images})
     {:ok, p}
   end
 

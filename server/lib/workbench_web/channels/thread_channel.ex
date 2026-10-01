@@ -31,8 +31,13 @@ defmodule WorkbenchWeb.ThreadChannel do
   end
 
   @impl true
-  def handle_in("send", %{"text" => text}, socket) when is_binary(text) and text != "" do
-    result(Threads.send_message(socket.assigns.thread_id, text), socket)
+  # `{text, images?: [{data: base64, mime, name}]}`; either may be empty, not both
+  def handle_in("send", %{"text" => text} = params, socket) when is_binary(text) do
+    images = if is_list(params["images"]), do: params["images"], else: []
+
+    if text == "" and images == [],
+      do: {:reply, {:error, %{reason: "empty message"}}, socket},
+      else: result(Threads.send_message(socket.assigns.thread_id, text, images), socket)
   end
 
   def handle_in("interrupt", _params, socket) do

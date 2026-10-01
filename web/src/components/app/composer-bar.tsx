@@ -1,16 +1,15 @@
 import { forwardRef, useState, type RefObject } from "react";
 import type { Channel } from "phoenix";
-import { ChevronDown } from "lucide-react";
-import { DropdownContent, DropdownMenu, DropdownTrigger } from "@/components/ui/dropdown";
+import { ChevronDown, SlidersHorizontal } from "lucide-react";
+import { DropdownContent, DropdownMenu, DropdownSeparator, DropdownTrigger } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
 import { push } from "@/hooks/use-channels";
+import { inLoadout, useLoadout } from "@/lib/labs";
 import { cn } from "@/lib/utils";
+import { useStore } from "@/store";
 import type { ModelOption, Thread } from "@/contracts";
 import { MODES } from "./modes";
-import { UsageList, UsageMeter } from "./usage-meter";
-
-// Model lists per provider, shared by every thread in this tab.
-const cache = new Map<string, ModelOption[]>();
+import { UsageMeter } from "./usage-meter";
 
 const EFFORT_LABEL: Record<string, string> = { minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max", none: "None" };
 const effortLabel = (e: string) => EFFORT_LABEL[e] ?? e.charAt(0).toUpperCase() + e.slice(1);
@@ -39,11 +38,14 @@ const Trigger = forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLBut
 
 /**
  * Under the composer: model, effort and permission mode, for any provider.
- * The model list is fetched the first time a picker opens (that may start the
- * agent process, but never a turn) and cached per provider.
+ * The model picker offers the lab's loadout (Settings → Models), or every
+ * model when there is none. The list comes with the lobby when the server
+ * has one, else it's fetched the first time a picker opens (that may start
+ * the agent process, but never a turn).
  */
 export function ComposerBar({ thread, channel }: { thread: Thread; channel: RefObject<Channel | null> }) {
-  const [models, setModels] = useState<ModelOption[] | null>(() => cache.get(thread.provider) ?? null);
+  const models = useStore((s) => s.models[thread.provider]) ?? null;
+  const loadout = useLoadout(thread.provider);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,14 +55,15 @@ export function ComposerBar({ thread, channel }: { thread: Thread; channel: RefO
     const r = await push(channel.current, "models");
     setLoading(false);
     if (r.ok) {
-      const list = (r.payload as { models: ModelOption[] }).models;
-      cache.set(thread.provider, list);
-      setModels(list);
+      useStore.getState().setModels(thread.provider, (r.payload as { models: ModelOption[] }).models);
       setError(null);
     } else setError(r.reason);
   };
 
   const current = models?.find((m) => m.id === (thread.model ?? "default")) ?? (thread.model ? undefined : models?.find((m) => m.id === "default"));
+  // the thread may be on a model that's not in the loadout: still show it, checked
+  const picks = models ? inLoadout(models, loadout) : [];
+  const rows = current && !picks.includes(current) ? [current, ...picks] : picks;
   const modelName = current?.name ?? (thread.model ? prettyId(thread.model) : "Default model");
   const efforts = current?.efforts ?? [];
   const effort = thread.effort ?? current?.default_effort ?? null;
@@ -79,12 +82,13 @@ export function ComposerBar({ thread, channel }: { thread: Thread; channel: RefO
           }}
         >
           <DropdownTrigger render={<Trigger title={current?.description}>{modelName}</Trigger>} />
-          <DropdownContent className="w-[260px] min-w-0" align="end" sideOffset={4} checkedIndex={models?.findIndex((m) => m === current) ?? -1}>
-            {models?.map((m, i) => (
+          <DropdownContent className="w-[200px] min-w-0" align="end" sideOffset={4} checkedIndex={current ? rows.indexOf(current) : -1}>
+            {rows.map((m, i) => (
               <MenuItem
                 key={m.id}
                 index={i}
-                label={m.description ? `${m.name} · ${m.description}` : m.name}
+                label={m.name}
+                title={m.description || undefined}
                 checked={m === current}
                 onSelect={() => {
                   // keep the effort if the new model has it
@@ -93,8 +97,14 @@ export function ComposerBar({ thread, channel }: { thread: Thread; channel: RefO
                 }}
               />
             ))}
-            {!models && <MenuItem index={0} label={error ? `Couldn't list models: ${error}` : "Loading models…"} disabled />}
-            <UsageList provider={thread.provider} />
+            {!models && <MenuItem index={0} label={error ? "Couldn't list models" : "Loading models…"} title={error ?? undefined} disabled />}
+            <DropdownSeparator />
+            <MenuItem
+              index={Math.max(rows.length, 1)}
+              icon={SlidersHorizontal}
+              label={loadout.length > 0 ? "Edit loadout…" : "Pick a loadout…"}
+              onSelect={() => (location.hash = "#/settings/models")}
+            />
           </DropdownContent>
         </DropdownMenu>
 

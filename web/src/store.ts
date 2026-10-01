@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Approval, HostInfo, Item, LiveItem, PlanUsage, Project, Snapshot, Status, Thread, ThreadEvent, ToolItem } from "./contracts";
+import type { Approval, HostInfo, Item, LiveItem, ModelOption, PlanUsage, Project, Settings, Snapshot, Status, Thread, ThreadEvent, ToolItem } from "./contracts";
 
 export interface ThreadState {
   thread: Thread;
@@ -20,6 +20,12 @@ interface Store {
   /** Plan limits per provider; they belong to the account, not a thread. */
   usage: Record<string, PlanUsage | null>;
   setUsage: (provider: string, usage: PlanUsage | null) => void;
+  /** Null until the lobby is joined. */
+  settings: Settings | null;
+  setSettings: (settings: Settings) => void;
+  /** Each provider's model list, as last listed (the server keeps it across restarts). */
+  models: Record<string, ModelOption[]>;
+  setModels: (provider: string, models: ModelOption[]) => void;
   setLobby: (projects: Project[], threads: Thread[]) => void;
   upsertProject: (project: Project) => void;
   removeThread: (id: string) => void;
@@ -39,6 +45,11 @@ export const useStore = create<Store>((set) => ({
   usage: {},
 
   setUsage: (provider, usage) => set((s) => ({ usage: { ...s.usage, [provider]: usage } })),
+
+  settings: null,
+  setSettings: (settings) => set({ settings }),
+  models: {},
+  setModels: (provider, models) => set((s) => ({ models: { ...s.models, [provider]: models } })),
 
   setLobby: (projects, threads) => set({ projects, threads }),
 
@@ -144,7 +155,7 @@ export function applyEvent(ts: ThreadState, ev: ThreadEvent): ThreadState {
         ...next,
         items: ts.items.map((it) =>
           it.id === ev.item_id && it.kind === "tool"
-            ? { ...it, output: ev.output, is_error: ev.is_error, truncated: ev.truncated, status: "done" }
+            ? { ...it, output: ev.output, is_error: ev.is_error, truncated: ev.truncated, status: "done", ...(ev.images ? { images: ev.images } : {}) }
             : it,
         ),
       };

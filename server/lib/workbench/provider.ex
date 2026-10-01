@@ -36,7 +36,11 @@ defmodule Workbench.Provider do
         }
 
   @callback open(open_opts()) :: {:ok, pstate()} | {:error, term()}
-  @callback send_turn(pstate(), text :: String.t()) :: {:ok, pstate()} | {:error, term()}
+  @typedoc "An image attached to a message: the stored file (see Workbench.Uploads)."
+  @type image :: %{required(String.t()) => String.t()}
+
+  @doc "Start a turn with the user's text and attached images (`%{\"path\", \"mime\"}`, possibly none)."
+  @callback send_turn(pstate(), text :: String.t(), images :: [image()]) :: {:ok, pstate()} | {:error, term()}
   @callback interrupt(pstate()) :: {:ok, pstate()}
   @doc """
   Answer a pending request. `decision` is allow | allow_session | deny for

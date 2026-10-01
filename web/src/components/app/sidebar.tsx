@@ -12,6 +12,7 @@ import {
   Moon,
   MoreVertical,
   Plus,
+  Settings,
   SlidersHorizontal,
   Sparkle,
   SquareTerminal,
@@ -49,6 +50,7 @@ import { spring } from "@/lib/springs";
 import { getTheme, nextTheme, setTheme, type Theme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { lobbyChannel, push } from "@/hooks/use-channels";
+import { useEnabledLabs } from "@/lib/labs";
 import { useStore } from "@/store";
 import type { Provider, Status, Thread } from "@/contracts";
 import { StatusDot } from "./status-dot";
@@ -173,6 +175,7 @@ function CopyLinkAction({ id }: { id: string }) {
 
 function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thread[]; open: boolean; onToggle: () => void; h: RowHandlers }) {
   const hasSessions = sessions.length > 0;
+  const agents = useEnabledLabs().filter((l) => l.id !== "fake");
   const count = t.message_count ?? 0;
   const toggle = (e: MouseEvent) => {
     e.stopPropagation();
@@ -230,9 +233,10 @@ function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thre
             }
           />
           <DropdownContent className="w-[240px] min-w-0" align="start" sideOffset={4}>
-            <MenuItem index={0} icon={Sparkle} label="New Claude session here" onSelect={() => h.onNewSession(t, "claude")} />
-            <MenuItem index={1} icon={SquareTerminal} label="New Codex session here" onSelect={() => h.onNewSession(t, "codex")} />
-            <MenuItem index={2} icon={Archive} label={hasSessions ? "Archive thread and sessions…" : "Archive…"} onSelect={() => h.onArchive(t)} />
+            {agents.map((l, i) => (
+              <MenuItem key={l.id} index={i} icon={l.icon} label={`New ${PROVIDER_NAME[l.id]} session here`} onSelect={() => h.onNewSession(t, l.id)} />
+            ))}
+            <MenuItem index={agents.length} icon={Archive} label={hasSessions ? "Archive thread and sessions…" : "Archive…"} onSelect={() => h.onArchive(t)} />
           </DropdownContent>
         </DropdownMenu>
       </SidebarMenuActions>
@@ -369,8 +373,9 @@ export function AppSidebar(props: {
   onSelect: (id: string) => void;
   onNewThread: (projectId?: string) => void;
   onAddProject: () => void;
+  onSettings: () => void;
 }) {
-  const { selected, connected, onSelect, onNewThread, onAddProject } = props;
+  const { selected, connected, onSelect, onNewThread, onAddProject, onSettings } = props;
   const projects = useStore((s) => s.projects);
   const threads = useStore((s) => s.threads);
   const host = useStore((s) => s.host);
@@ -452,6 +457,7 @@ export function AppSidebar(props: {
                 <MenuItem index={0} icon={Monitor} label={host ? `Running on ${host.name}` : "Connecting…"} disabled />
                 <MenuItem index={1} icon={Plus} label="New thread" onSelect={() => onNewThread()} />
                 <MenuItem index={2} icon={FolderPlus} label="Add project" onSelect={onAddProject} />
+                <MenuItem index={3} icon={Settings} label="Settings" onSelect={onSettings} />
               </>
             }
           />
@@ -546,6 +552,7 @@ export function AppSidebar(props: {
                   <MenuItem index={0} icon={Monitor} label={connected ? "Connected" : "Offline, reconnecting…"} disabled />
                   <MenuItem index={1} icon={FolderPlus} label="Add project" onSelect={onAddProject} />
                   <MenuItem index={2} icon={ThemeIcon} label={`${THEME_LABEL[theme]} (click to change)`} onSelect={cycleTheme} />
+                  <MenuItem index={3} icon={Settings} label="Settings  ⌘," onSelect={onSettings} />
                 </>
               }
             />
@@ -557,6 +564,11 @@ export function AppSidebar(props: {
             <Tooltip content={THEME_LABEL[theme]} side="top">
               <button type="button" aria-label="Theme" className={actionBtn} onClick={cycleTheme}>
                 <ThemeIcon size={16} strokeWidth={1.5} />
+              </button>
+            </Tooltip>
+            <Tooltip content="Settings  ⌘," side="top">
+              <button type="button" aria-label="Settings" className={actionBtn} onClick={onSettings}>
+                <Settings size={16} strokeWidth={1.5} />
               </button>
             </Tooltip>
           </div>

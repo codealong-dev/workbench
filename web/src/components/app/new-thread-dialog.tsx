@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/u
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
 import { Switch } from "@/components/ui/switch";
 import { lobbyChannel, push } from "@/hooks/use-channels";
+import { useEnabledLabs } from "@/lib/labs";
 import { useStore } from "@/store";
 import type { Mode, Provider, Thread } from "@/contracts";
 import { MODES } from "./modes";
@@ -22,6 +23,7 @@ export function NewThreadDialog(props: {
 }) {
   const { open, onOpenChange, onCreated, onAddProject } = props;
   const projects = useStore((s) => s.projects);
+  const labs = useEnabledLabs();
   const [projectId, setProjectId] = useState<string>("");
   const [title, setTitle] = useState("");
   const [provider, setProvider] = useState<Provider>("claude");
@@ -40,6 +42,8 @@ export function NewThreadDialog(props: {
     const last = localStorage.getItem(LAST_PROJECT);
     const pick = props.projectId ?? (projects.some((p) => p.id === last) ? last : projects[0]?.id) ?? "";
     setProjectId(pick);
+    // the agent picked last time may have been turned off in settings
+    setProvider((p) => (labs.some((l) => l.id === p) ? p : (labs[0]?.id ?? "claude")));
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Branches for the base-branch picker.
@@ -116,9 +120,11 @@ export function NewThreadDialog(props: {
                 <Select value={provider} onValueChange={(v) => setProvider(v as Provider)} size="compact">
                   <SelectTrigger />
                   <SelectContent>
-                    <SelectItem index={0} value="claude">Claude Code</SelectItem>
-                    <SelectItem index={1} value="codex">Codex</SelectItem>
-                    <SelectItem index={2} value="fake">Fake (no agent)</SelectItem>
+                    {labs.map((l, i) => (
+                      <SelectItem key={l.id} index={i} value={l.id}>
+                        {l.id === "fake" ? "Fake (no agent)" : l.agent}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </Field>

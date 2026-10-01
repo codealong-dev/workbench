@@ -10,7 +10,8 @@ defmodule Workbench.Provider.Fake do
 
   Without a script it generates a reply that echoes the prompt with some
   markdown, a reasoning block and a Bash tool call. A prompt containing
-  "approve" also asks for approval before the tool runs.
+  "approve" also asks for approval before the tool runs; attached images come
+  back from a Read, so both directions can be tried without an agent.
 
   Output goes through the same `{:stdout, io, line}` path as real agents, so
   the server's line handling is exercised too.
@@ -30,8 +31,8 @@ defmodule Workbench.Provider.Fake do
   end
 
   @impl true
-  def send_turn(%{io: pid} = p, text) do
-    send(pid, {:send, text})
+  def send_turn(%{io: pid} = p, text, images) do
+    send(pid, {:send, text, images})
     {:ok, p}
   end
 
@@ -129,9 +130,9 @@ defmodule Workbench.Provider.Fake do
         emit(st.server, %{"type" => "usage", "usage" => usage()})
         loop(st)
 
-      {:send, text} ->
+      {:send, text, images} ->
         n = st.n + 1
-        steps = turn_steps(st.turns, n, text)
+        steps = turn_steps(st.turns, n, text, images)
         play(st.server, steps, n)
         loop(%{st | n: n})
 
@@ -140,9 +141,9 @@ defmodule Workbench.Provider.Fake do
     end
   end
 
-  defp turn_steps(nil, n, text), do: generated_turn(n, text)
+  defp turn_steps(nil, n, text, images), do: generated_turn(n, text, images)
 
-  defp turn_steps(turns, n, _text) do
+  defp turn_steps(turns, n, _text, _images) do
     turns |> Enum.at(rem(n - 1, length(turns))) |> Enum.map(&suffix_ids(&1, n))
   end
 
@@ -255,14 +256,17 @@ defmodule Workbench.Provider.Fake do
     ]
   end
 
-  defp generated_turn(n, text) do
+  defp generated_turn(n, text, images) do
     turn = "t#{n}"
     r = "r#{n}"
     m1 = "m#{n}a"
     m2 = "m#{n}b"
     tool = "tool#{n}"
 
-    thinking = "The user wrote #{String.length(text)} characters. I'll echo it back and list the files."
+    thinking =
+      "The user wrote #{String.length(text)} characters" <>
+        if(images == [], do: "", else: " and attached #{length(images)} image(s)") <>
+        ". I'll echo it back and list the files."
 
     answer =
       "You said:\n\n> #{text}\n\nHere is what I'd run first:\n\n```bash\nls -la\n```\n"
@@ -294,8 +298,18 @@ defmodule Workbench.Provider.Fake do
         ],
         else: []
 
+    # images you attach come back as if the agent had opened them
+    look =
+      if images == [],
+        do: [],
+        else: [
+          %{"type" => "tool.started", "item_id" => "look#{n}", "name" => "Read", "input" => %{"file_path" => hd(images)["path"]}},
+          %{"type" => "tool.completed", "item_id" => "look#{n}", "output" => "", "truncated" => false, "is_error" => false, "images" => Enum.map(images, &Map.take(&1, ["path"]))}
+        ]
+
     [%{"type" => "turn.started", "turn_id" => turn}] ++
       question ++
+      look ++
       deltas("reasoning.delta", r, thinking) ++
       [item(r, "reasoning", thinking, turn)] ++
       deltas("text.delta", m1, answer) ++

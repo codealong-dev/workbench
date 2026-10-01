@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type ClipboardEvent as ReactClipboardEvent,
   type DragEvent as ReactDragEvent,
   type HTMLAttributes,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -149,7 +150,7 @@ interface InputMessageProps
   /** Controlled list of attached files. When undefined, attachment behavior
    *  is disabled (no drag-drop, no file input). */
   files?: File[];
-  /** Called when files are added (drag-drop or picker) or removed. */
+  /** Called when files are added (drag-drop, paste or picker) or removed. */
   onFilesChange?: (files: File[]) => void;
   /** Accepted MIME types as a comma-separated string. Defaults to PNG / JPEG / PDF. */
   accept?: string;
@@ -494,6 +495,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     const {
       onFocus: _textareaOnFocus,
       onBlur: _textareaOnBlur,
+      onPaste: _textareaOnPaste,
       "aria-describedby": textareaDescribedBy,
       ...restTextareaProps
     } = textareaProps ?? {};
@@ -1016,6 +1018,19 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       [supportsFiles, disabled, addFiles]
     );
 
+    // Pasting a screenshot attaches it. A paste that also carries text (Word,
+    // Excel and Pages add a picture of the copied text) stays a text paste.
+    const handlePaste = useCallback(
+      (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
+        if (!supportsFiles || disabled) return;
+        const pasted = Array.from(e.clipboardData.files);
+        if (!pasted.length || e.clipboardData.types.includes("text/plain")) return;
+        e.preventDefault();
+        addFiles(pasted);
+      },
+      [supportsFiles, disabled, addFiles]
+    );
+
     const handleFileInputChange = useCallback(
       (e: ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files) return;
@@ -1154,6 +1169,10 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
                 onValueChange(e.target.value);
               }}
               onKeyDown={handleKeyDown}
+              onPaste={(e) => {
+                handlePaste(e);
+                textareaProps?.onPaste?.(e);
+              }}
               // Compose the consumer's textareaProps handlers with the internal
               // focus-visible tracking (the spread below would otherwise
               // overwrite these).

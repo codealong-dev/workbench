@@ -35,6 +35,23 @@ defmodule WorkbenchWeb.Router do
     end
   end
 
+  # images in a conversation (Workbench.Uploads); same access as the page
+  get "/api/uploads/:thread_id/:file" do
+    conn = Plug.Conn.fetch_cookies(conn)
+
+    with true <- local?(conn) or valid?(conn.cookies[@cookie], Workbench.Home.token()),
+         {:ok, path, mime} <- Workbench.Uploads.path(thread_id, file) do
+      conn
+      |> put_resp_content_type(mime, nil)
+      |> Plug.Conn.put_resp_header("cache-control", "private, max-age=31536000, immutable")
+      |> Plug.Conn.put_resp_header("x-content-type-options", "nosniff")
+      |> send_file(200, path)
+    else
+      false -> send_resp(conn, 401, "")
+      :error -> send_resp(conn, 404, "")
+    end
+  end
+
   match _ do
     conn = Plug.Conn.fetch_cookies(conn) |> Plug.Conn.fetch_query_params()
     token = Workbench.Home.token()

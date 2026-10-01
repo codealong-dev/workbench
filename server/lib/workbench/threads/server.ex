@@ -19,7 +19,7 @@ defmodule Workbench.Threads.Server do
   use GenServer, restart: :transient
   require Logger
 
-  alias Workbench.{Items, Provider, Repo, Threads}
+  alias Workbench.{Items, Provider, Repo, Threads, Uploads}
   alias Workbench.Threads.Thread
 
   @busy ~w(running awaiting_approval)
@@ -113,6 +113,8 @@ defmodule Workbench.Threads.Server do
       end
     end
 
+    Uploads.remove_all(thread.id)
+
     thread =
       thread
       |> Ecto.Changeset.change(archived_at: DateTime.utc_now(), status: "idle")
@@ -125,36 +127,14 @@ defmodule Workbench.Threads.Server do
   # -- calls ------------------------------------------------------------------
 
   @impl true
-  def handle_call({:send, _text}, _from, %{status: s} = st) when s in @busy do
+  def handle_call({:send, _text, _images}, _from, %{status: s} = st) when s in @busy do
     {:reply, {:error, :busy}, st}
   end
 
-  def handle_call({:send, text}, _from, st) do
-    st = if st.status == "error", do: close_provider(st), else: st
-
-    with {:ok, st} <- ensure_provider(st),
-         {:ok, pstate} <- st.provider.send_turn(st.pstate, text) do
-      st =
-        %{st | pstate: pstate}
-        |> emit(%{
-          "type" => "item.completed",
-          "item" => %{"id" => "u-" <> uid(), "kind" => "user_message", "text" => text}
-        })
-        |> set_status("running")
-        |> touch()
-
-      Threads.broadcast_lobby({:thread_messages, st.thread.id, Items.count(st.thread.id, "user_message")})
-      {:reply, :ok, st}
-    else
-      {:error, reason} ->
-        message = if is_binary(reason), do: reason, else: inspect(reason)
-
-        st =
-          st
-          |> emit(%{"type" => "error", "message" => "Could not start agent: " <> message, "fatal" => true})
-          |> set_status("error")
-
-        {:reply, {:error, message}, st}
+  def handle_call({:send, text, images}, _from, st) do
+    case attach(st.thread.id, images) do
+      {:ok, refs} -> send_turn(st, text, refs)
+      {:error, message} -> {:reply, {:error, message}, st}
     end
   end
 
@@ -442,6 +422,10 @@ defmodule Workbench.Threads.Server do
   defp emit(st, %{"type" => "tool.completed"} = ev) do
     id = ev["item_id"]
     base = Map.get(st.tools, id, %{"id" => id, "kind" => "tool", "name" => "tool", "input" => nil, "turn_id" => st.turn_id})
+    # images the agent looked at or made: stored, and only their refs go out
+    {images, ev} = Map.pop(ev, "images")
+    refs = Uploads.store_all(st.thread.id, Enum.map(List.wrap(images), &named(&1, base["input"])))
+    ev = if refs == [], do: ev, else: Map.put(ev, "images", refs)
 
     item =
       Map.merge(base, %{
@@ -450,6 +434,8 @@ defmodule Workbench.Threads.Server do
         "truncated" => ev["truncated"] || false,
         "status" => "done"
       })
+
+    item = if refs == [], do: item, else: Map.put(item, "images", refs)
 
     st = flush(st)
     {env, st} = stamp(st, ev)
@@ -496,6 +482,16 @@ defmodule Workbench.Threads.Server do
     Logger.debug("unknown event #{inspect(ev["type"])}")
     st
   end
+
+  # an image returned inline (Claude's Read) is named after the file it came from
+  defp named(%{} = img, %{} = input) do
+    case input["file_path"] || input["path"] do
+      path when is_binary(path) -> Map.put_new(img, "name", Path.basename(path))
+      _ -> img
+    end
+  end
+
+  defp named(img, _input), do: img
 
   # Switching to a more permissive mode also answers the approvals it
   # covers: the agent is waiting on them, and the new mode says yes.
@@ -575,6 +571,57 @@ defmodule Workbench.Threads.Server do
 
     Threads.broadcast_lobby({:thread_status, thread.id, status})
     %{st | thread: thread, status: status}
+  end
+
+  # -- sending ----------------------------------------------------------------
+
+  defp send_turn(st, text, refs) do
+    st = if st.status == "error", do: close_provider(st), else: st
+    files = for r <- refs, do: %{"path" => Path.join(Uploads.dir(st.thread.id), r["id"]), "mime" => r["mime"]}
+    message = %{"id" => "u-" <> uid(), "kind" => "user_message", "text" => text}
+    message = if refs == [], do: message, else: Map.put(message, "images", refs)
+
+    with {:ok, st} <- ensure_provider(st),
+         {:ok, pstate} <- st.provider.send_turn(st.pstate, text, files) do
+      st =
+        %{st | pstate: pstate}
+        |> emit(%{"type" => "item.completed", "item" => message})
+        |> set_status("running")
+        |> touch()
+
+      Threads.broadcast_lobby({:thread_messages, st.thread.id, Items.count(st.thread.id, "user_message")})
+      {:reply, :ok, st}
+    else
+      {:error, reason} ->
+        message = if is_binary(reason), do: reason, else: inspect(reason)
+
+        st =
+          st
+          |> emit(%{"type" => "error", "message" => "Could not start agent: " <> message, "fatal" => true})
+          |> set_status("error")
+
+        {:reply, {:error, message}, st}
+    end
+  end
+
+  @max_images 10
+
+  # Store attached images before the turn starts, so a bad one fails the send.
+  defp attach(_id, images) when length(images) > @max_images,
+    do: {:error, "at most #{@max_images} images per message"}
+
+  defp attach(id, images) do
+    Enum.reduce_while(images, {:ok, []}, fn img, {:ok, refs} ->
+      # bytes only: a path here would let a client copy any image on disk
+      case Uploads.store(id, if(is_map(img), do: Map.take(img, ["data", "mime", "name"]), else: img)) do
+        {:ok, ref} ->
+          {:cont, {:ok, refs ++ [ref]}}
+
+        {:error, reason} ->
+          name = if is_map(img) and is_binary(img["name"]), do: img["name"], else: "an image"
+          {:halt, {:error, "could not attach #{name}: #{reason |> to_string() |> String.replace("_", " ")}"}}
+      end
+    end)
   end
 
   # -- broadcasting -----------------------------------------------------------

@@ -12,7 +12,7 @@ defmodule Workbench.CodexProviderTest do
       p = Codex.new_state(%{io: :none, pid: me}, opts, &send(me, {:wrote, &1}))
       # as if open/1 had sent `initialize` as request 1
       p = %{p | calls: %{1 => :initialize}, next_id: 2}
-      {:ok, p} = Codex.send_turn(p, "say hi")
+      {:ok, p} = Codex.send_turn(p, "say hi", [])
 
       {events, _p} =
         @recorded
@@ -44,6 +44,24 @@ defmodule Workbench.CodexProviderTest do
                        }}
 
       assert_received {:wrote, %{"id" => 4, "method" => "turn/interrupt", "params" => %{"threadId" => ^tid, "turnId" => ^turn}}}
+    end
+
+    test "attached images go in as localImage; images Codex views come back" do
+      me = self()
+      p = Codex.new_state(%{io: :none, pid: me}, %{cwd: "/w", mode: "default", resume: nil}, &send(me, {:wrote, &1}))
+      p = %{p | thread_id: "th"}
+
+      {:ok, p} = Codex.send_turn(p, "what is this?", [%{"path" => "/u/a.png", "mime" => "image/png"}])
+      assert_received {:wrote, %{"method" => "turn/start", "params" => %{"input" => [%{"type" => "localImage", "path" => "/u/a.png"}, %{"type" => "text", "text" => "what is this?"}]}}}
+
+      {:ok, p} = Codex.send_turn(p, "", [%{"path" => "/u/b.png", "mime" => "image/png"}])
+      assert_received {:wrote, %{"method" => "turn/start", "params" => %{"input" => [%{"type" => "localImage", "path" => "/u/b.png"}]}}}
+
+      view = %{"type" => "imageView", "id" => "iv", "path" => "/w/shot.png"}
+      {[started], p} = Codex.handle_line(p, Jason.encode!(%{"method" => "item/started", "params" => %{"item" => view}}))
+      assert %{"type" => "tool.started", "name" => "ViewImage", "input" => %{"path" => "/w/shot.png"}} = started
+      {[done], _p} = Codex.handle_line(p, Jason.encode!(%{"method" => "item/completed", "params" => %{"item" => view}}))
+      assert %{"type" => "tool.completed", "item_id" => "iv", "images" => [%{"path" => "/w/shot.png"}]} = done
     end
 
     test "mode mapping" do
@@ -226,7 +244,7 @@ defmodule Workbench.CodexProviderTest do
     end
 
     test "models: listed from model/list; model and effort go with the next turn", %{dir: dir} do
-      :persistent_term.erase({Workbench.Models, "codex"})
+      Workbench.Models.forget("codex")
       t = create_thread(dir, %{provider: "codex"})
       Threads.subscribe(t.id)
       assert {:ok, [%{"id" => "gpt-a", "name" => "GPT A", "efforts" => [%{"value" => "low"}, %{"value" => "high"}], "default_effort" => "high"}]} = Threads.models(t.id)
@@ -241,7 +259,7 @@ defmodule Workbench.CodexProviderTest do
       assert Enum.any?(events, &(&1["type"] == "item.completed" and &1["item"]["text"] == "model=gpt-a effort=low"))
       assert %{model: "gpt-a", effort: "low"} = Threads.get(t.id)
     after
-      :persistent_term.erase({Workbench.Models, "codex"})
+      Workbench.Models.forget("codex")
     end
 
     test "codex crashing mid-turn is a fatal error with its stderr", %{dir: dir} do

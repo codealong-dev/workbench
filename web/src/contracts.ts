@@ -55,8 +55,18 @@ export interface Usage {
   cache_creation_input_tokens?: number;
 }
 
+/** An image in the conversation, stored by the server (Workbench.Uploads). */
+export type ImageRef = { id: string; name: string; mime: string; url: string };
+
 // Timeline items (persisted by the server, rendered by the UI)
-export type MessageItem = { id: string; kind: "user_message" | "assistant_message" | "reasoning"; text: string; turn_id?: string | null };
+export type MessageItem = {
+  id: string;
+  kind: "user_message" | "assistant_message" | "reasoning";
+  text: string;
+  turn_id?: string | null;
+  /** user_message: what you attached */
+  images?: ImageRef[];
+};
 export type ToolItem = {
   id: string;
   kind: "tool";
@@ -69,6 +79,8 @@ export type ToolItem = {
   status: "running" | "done";
   /** AskUserQuestion: what the user picked ({} when skipped) */
   answers?: Answers;
+  /** images the agent looked at or made (Claude's Read on a picture, Codex's view_image) */
+  images?: ImageRef[];
 };
 export type TurnItem = { id: string; kind: "turn"; turn_id: string; status: "ok" | "interrupted" | "error"; usage?: Usage; cost_usd?: number | null };
 export type ErrorItem = { id: string; kind: "error"; message: string };
@@ -88,7 +100,7 @@ export type ThreadEvent = Env &
     | { type: "reasoning.delta"; item_id: string; text: string }
     | { type: "item.completed"; item: MessageItem }
     | { type: "tool.started"; item_id: string; name: string; input: unknown; parent_id?: string }
-    | { type: "tool.completed"; item_id: string; output: string; truncated: boolean; is_error: boolean }
+    | { type: "tool.completed"; item_id: string; output: string; truncated: boolean; is_error: boolean; images?: ImageRef[] }
     | ({ type: "approval.requested" } & Approval)
     | { type: "approval.resolved"; request_id: string; decision: Decision | "cancelled"; answers?: Answers }
     | { type: "turn.completed"; turn_id: string; status: TurnItem["status"]; usage?: Usage; cost_usd?: number | null }
@@ -180,6 +192,20 @@ export interface PlanUsage {
   plan: string | null;
   windows: UsageWindow[];
 }
+
+/** One lab (agent): on or off, and the models its chat picker offers. */
+export interface LabSettings {
+  enabled: boolean;
+  /** At most MAX_LOADOUT model ids, in picker order; empty = every model. */
+  models: string[];
+}
+
+/** App-wide preferences (Workbench.Settings), shared by every browser. */
+export interface Settings {
+  labs: Record<Provider, LabSettings>;
+}
+
+export const MAX_LOADOUT = 3;
 
 /** A model a provider offers, in one shape for every provider. */
 export interface ModelOption {

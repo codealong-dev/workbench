@@ -4,7 +4,7 @@ defmodule Workbench.Provider.Codex do
   without the `jsonrpc` field, one message per line on stdio.
 
       initialize -> initialized -> thread/resume (else thread/start)
-      send       -> turn/start {threadId, input, approvalPolicy, sandboxPolicy}
+      send       -> turn/start {threadId, input (localImage + text), approvalPolicy, sandboxPolicy}
       interrupt  -> turn/interrupt {threadId, turnId}
 
   Approvals arrive as server *requests* and are answered with
@@ -100,8 +100,8 @@ defmodule Workbench.Provider.Codex do
   end
 
   @impl true
-  def send_turn(%{thread_id: nil} = p, text), do: {:ok, %{p | queued: p.queued ++ [text]}}
-  def send_turn(p, text), do: {:ok, start_turn(p, text)}
+  def send_turn(%{thread_id: nil} = p, text, images), do: {:ok, %{p | queued: p.queued ++ [{text, images}]}}
+  def send_turn(p, text, images), do: {:ok, start_turn(p, {text, images})}
 
   @impl true
   def interrupt(%{thread_id: tid, turn_id: turn} = p) when is_binary(tid) and is_binary(turn) do
@@ -181,13 +181,15 @@ defmodule Workbench.Provider.Codex do
 
   defp start_thread(p), do: call(p, :thread_start, "thread/start", thread_params(p))
 
-  defp start_turn(p, text) do
+  defp start_turn(p, {text, images}) do
     {approval, _, sandbox_policy} = mode_policy(p.mode)
+    pictures = for %{"path" => path} <- images, do: %{"type" => "localImage", "path" => path}
+    words = if text == "", do: [], else: [%{"type" => "text", "text" => text, "text_elements" => []}]
 
     params =
       %{
         "threadId" => p.thread_id,
-        "input" => [%{"type" => "text", "text" => text, "text_elements" => []}],
+        "input" => pictures ++ words,
         "approvalPolicy" => approval,
         "sandboxPolicy" => sandbox_policy
       }
@@ -400,6 +402,14 @@ defmodule Workbench.Provider.Codex do
     {[tool_started(id, "WebSearch", %{"query" => item["query"]})], p}
   end
 
+  defp item_started(p, %{"type" => "imageView", "id" => id} = item) do
+    {[tool_started(id, "ViewImage", %{"path" => item["path"]})], p}
+  end
+
+  defp item_started(p, %{"type" => "imageGeneration", "id" => id} = item) do
+    {[tool_started(id, "ImageGen", %{"prompt" => item["revisedPrompt"]})], p}
+  end
+
   defp item_started(p, _item), do: {[], p}
 
   defp item_completed(p, %{"type" => "agentMessage", "id" => id, "text" => text})
@@ -486,6 +496,28 @@ defmodule Workbench.Provider.Codex do
   defp item_completed(p, %{"type" => "webSearch", "id" => id} = item) do
     n = length(item["results"] || [])
     {[tool_completed(id, "#{n} results", false)], p}
+  end
+
+  # the picture shows in the timeline (the server stores it, see Workbench.Uploads)
+  defp item_completed(p, %{"type" => "imageView", "id" => id, "path" => path}) when is_binary(path) do
+    {[tool_completed(id, "", false) |> Map.put("images", [%{"path" => path}])], p}
+  end
+
+  defp item_completed(p, %{"type" => "imageGeneration", "id" => id} = item) do
+    image =
+      case item do
+        %{"savedPath" => path} when is_binary(path) -> %{"path" => path}
+        %{"result" => b64} when is_binary(b64) and b64 != "" -> %{"data" => b64, "mime" => "image/png"}
+        _ -> nil
+      end
+
+    case item["failure"] do
+      nil ->
+        {[tool_completed(id, item["revisedPrompt"] || "", false) |> Map.put("images", List.wrap(image))], p}
+
+      failure ->
+        {[tool_completed(id, "Image generation failed (#{failure["type"] || "unknown"})", true)], p}
+    end
   end
 
   defp item_completed(p, _item), do: {[], p}
