@@ -13,14 +13,14 @@ sidecar:
 web:
 	cd web && npm run build
 
-# Phoenix on :4000 and Vite on :5173 (open http://127.0.0.1:5173). Ctrl-C stops both.
+# Phoenix on :4242 and Vite on :5173 (open http://127.0.0.1:5173). Ctrl-C stops both.
 dev: sidecar
 	@trap 'kill 0' INT TERM EXIT; \
 	(cd server && mix phx.server) & \
 	(cd web && npm run dev) & \
 	wait
 
-# Everything served by Phoenix from the built SPA (http://127.0.0.1:4000).
+# Everything served by Phoenix from the built SPA (http://127.0.0.1:4242).
 build: sidecar web
 	@echo "run: cd server && mix phx.server"
 
@@ -55,4 +55,4 @@ logs:
 # M7: one-time login link for a browser on another machine (Tailscale).
 #   make link HOST=macmini
 link:
-	@echo "http://$${HOST:-$$(hostname -s)}:$${PORT:-4000}/?token=$$(cat $${WB_HOME:-$$HOME/.workbench}/token)"
+	@echo "http://$${HOST:-$$(hostname -s)}:$${PORT:-4242}/?token=$$(cat $${WB_HOME:-$$HOME/.workbench}/token)"

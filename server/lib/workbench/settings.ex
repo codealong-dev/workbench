@@ -19,6 +19,20 @@ defmodule Workbench.Settings do
             "mode" => "plan", "prompt" => "Review the changes ..."}
 
       Saved whole; `nil` forgets it.
+
+    * `"guide"`: the agent that writes a thread's review guide (its changes
+      grouped into chunks). Always runs read-only, so there is no mode. `nil`
+      until saved, when `Workbench.Guide.config/0` uses Claude's Sonnet:
+
+          %{"provider" => "claude", "model" => "sonnet" | nil, "effort" => nil,
+            "prompt" => "You are preparing a review guide ..."}
+
+    * `"commit"`: the model that writes a commit message, per agent. The
+      thread's own agent writes it, so each agent has its own small model.
+      An agent left out uses `Workbench.Commit.default_model/1` (Claude's
+      Haiku, Codex's mini model); `nil` forgets the choices:
+
+          %{"models" => %{"claude" => "haiku", "codex" => "gpt-5.1-codex-mini"}}
   """
   use Ecto.Schema
   import Ecto.Query, only: [from: 2]
@@ -37,7 +51,7 @@ defmodule Workbench.Settings do
   def providers, do: @providers
   def max_models, do: @max_models
 
-  def all, do: %{"labs" => labs(), "review" => review()}
+  def all, do: %{"labs" => labs(), "review" => review(), "guide" => guide(), "commit" => commit()}
 
   @doc "Every lab with its settings, defaults filled in."
   def labs do
@@ -47,6 +61,12 @@ defmodule Workbench.Settings do
 
   @doc "The review agent's settings, or nil when none were saved."
   def review, do: get("review")
+
+  @doc "The guide agent's settings, or nil when none were saved."
+  def guide, do: get("guide")
+
+  @doc "The commit message models (see the moduledoc), or nil when none were saved."
+  def commit, do: get("commit")
 
   @doc """
   Update a key. `"labs"` takes the labs to change (the others are kept), each
@@ -70,6 +90,18 @@ defmodule Workbench.Settings do
     with {:ok, review} <- check_review(r), do: store("review", review)
   end
 
+  def put("guide", nil), do: delete("guide")
+
+  def put("guide", %{} = g) do
+    with {:ok, guide} <- check_guide(g), do: store("guide", guide)
+  end
+
+  def put("commit", nil), do: delete("commit")
+
+  def put("commit", %{} = c) do
+    with {:ok, commit} <- check_commit(c), do: store("commit", commit)
+  end
+
   def put(key, _), do: {:error, "unknown setting #{inspect(key)}"}
 
   defp check_review(r) do
@@ -84,6 +116,32 @@ defmodule Workbench.Settings do
       not is_binary(prompt) or String.trim(prompt) == "" -> {:error, "review: write the prompt the reviewer gets"}
       byte_size(prompt) > @max_prompt -> {:error, "review: the prompt is too long"}
       true -> {:ok, %{"provider" => r["provider"], "model" => r["model"], "effort" => r["effort"], "mode" => r["mode"], "prompt" => String.trim(prompt)}}
+    end
+  end
+
+  defp check_guide(g) do
+    prompt = g["prompt"]
+    optional = fn k -> is_nil(g[k]) or (is_binary(g[k]) and g[k] != "" and byte_size(g[k]) <= 200) end
+
+    cond do
+      Map.keys(g) -- ~w(provider model effort prompt) != [] -> {:error, "guide: unknown field"}
+      g["provider"] not in @providers -> {:error, "guide: pick an agent"}
+      not optional.("model") or not optional.("effort") -> {:error, "guide: model and effort must be ids"}
+      not is_binary(prompt) or String.trim(prompt) == "" -> {:error, "guide: write the instructions the guide writer gets"}
+      byte_size(prompt) > @max_prompt -> {:error, "guide: the prompt is too long"}
+      true -> {:ok, %{"provider" => g["provider"], "model" => g["model"], "effort" => g["effort"], "prompt" => String.trim(prompt)}}
+    end
+  end
+
+  defp check_commit(c) do
+    models = c["models"]
+
+    cond do
+      Map.keys(c) -- ["models"] != [] -> {:error, "commit: unknown field"}
+      not is_map(models) -> {:error, "commit: models must map each agent to a model"}
+      Map.keys(models) -- @providers != [] -> {:error, "commit: unknown agent"}
+      not Enum.all?(models, fn {_, m} -> is_binary(m) and m != "" and byte_size(m) <= 200 end) -> {:error, "commit: models must be model ids"}
+      true -> {:ok, %{"models" => models}}
     end
   end
 

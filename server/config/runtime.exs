@@ -31,7 +31,7 @@ if config_env() != :test do
       {:error, _} -> raise "WB_BIND=#{bind} is not an IP address"
     end
 
-  port = String.to_integer(System.get_env("PORT") || "4000")
+  port = String.to_integer(System.get_env("PORT") || "4242")
   config :workbench, WorkbenchWeb.Endpoint, http: [ip: ip, port: port]
   config :workbench, allowed_origins: Enum.uniq(origins ++ List.wrap(bind))
   if ssh_host = System.get_env("WB_SSH_HOST"), do: config(:workbench, ssh_host: ssh_host)

@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-const phoenix = `http://127.0.0.1:${process.env.PORT ?? 4000}`;
+const phoenix = `http://127.0.0.1:${process.env.PORT ?? 4242}`;
 
 // In dev, inject the socket token the same way Phoenix does in prod. Read on
 // every request so it works whichever of Phoenix/Vite started first.

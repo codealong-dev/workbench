@@ -1,14 +1,12 @@
-import { useState, type ReactNode } from "react";
-import { ArrowUpFromLine, FolderGit2, GitBranch, GitPullRequest, PanelRight, SquareTerminal } from "lucide-react";
+import type { ReactNode } from "react";
+import { FolderGit2, GitBranch, PanelRight, SquareTerminal } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
 import { InsetTrigger, threadLabel } from "@/components/app/sidebar";
 import { StatusDot } from "@/components/app/status-dot";
 import { Counts } from "@/components/app/diff-view";
 import { OpenMenu } from "@/components/app/open-menu";
 import { cn } from "@/lib/utils";
-import type { DiffResult, Editor, PushResult, Thread } from "@/contracts";
-
-type PushOutcome = { ok: true; result: PushResult } | { ok: false; error: string };
+import type { DiffResult, Editor, Thread } from "@/contracts";
 
 function Item(props: { children: ReactNode; title?: string; onClick?: () => void; className?: string }) {
   const cls = cn(
@@ -46,12 +44,9 @@ export function StatusBar(props: {
   onTogglePanel: () => void;
   onOpenChanges: () => void;
   onTerminals: () => void;
-  onPush: () => Promise<PushOutcome>;
   onOpenIn: (editor: Editor) => Promise<string | null>;
 }) {
   const { root, focused, threads, diff } = props;
-  const [pushing, setPushing] = useState(false);
-  const [pushed, setPushed] = useState<PushOutcome | null>(null);
   const running = threads.filter((t) => t.status === "running").length;
   const waiting = threads.filter((t) => t.status === "awaiting_approval").length;
   const totals = (diff?.files ?? []).reduce(
@@ -61,14 +56,6 @@ export function StatusBar(props: {
     }),
     { additions: 0, deletions: 0 },
   );
-
-  const doPush = async () => {
-    setPushing(true);
-    const r = await props.onPush();
-    setPushing(false);
-    setPushed(r);
-    setTimeout(() => setPushed(null), r.ok && !r.result.pr_url ? 4000 : 12000);
-  };
 
   return (
     <footer className="relative flex h-7 shrink-0 items-center gap-0.5 px-0.5 text-[12px] text-muted-foreground">
@@ -96,27 +83,6 @@ export function StatusBar(props: {
       <Item title="All changes against the base branch" onClick={props.onOpenChanges}>
         {diff && diff.files.length > 0 ? <Counts {...totals} /> : "No changes"}
       </Item>
-      <Item title="git push -u origin <branch>" onClick={pushing ? undefined : () => void doPush()}>
-        <ArrowUpFromLine className={cn("size-3.5", pushing && "animate-pulse")} />
-        {pushing ? "Pushing…" : "Push"}
-      </Item>
-      {pushed && (
-        <span className={cn("flex items-center gap-1 px-1.5", pushed.ok ? "text-foreground" : "text-destructive")}>
-          {pushed.ok ? (
-            pushed.result.pr_url ? (
-              <a href={pushed.result.pr_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:underline">
-                <GitPullRequest className="size-3.5" /> Open PR
-              </a>
-            ) : (
-              "Pushed"
-            )
-          ) : (
-            <span className="max-w-80 truncate" title={pushed.error}>
-              Push failed: {pushed.error}
-            </span>
-          )}
-        </span>
-      )}
 
       <div className="ml-auto flex h-full items-center gap-0.5">
         {(running > 0 || waiting > 0) && (

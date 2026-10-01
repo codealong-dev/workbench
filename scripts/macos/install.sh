@@ -6,7 +6,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 label="dev.workbench.server"
-port="${PORT:-4000}"
+port="${PORT:-4242}"
 wb_home="${WB_HOME:-$HOME/.workbench}"
 agent="$HOME/Library/LaunchAgents/$label.plist"
 release="$root/server/_build/prod/rel/workbench"

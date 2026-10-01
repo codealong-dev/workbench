@@ -1,10 +1,10 @@
-import { Boxes, Keyboard, Palette, ScanSearch } from "lucide-react";
+import { Boxes, GitCommitHorizontal, Keyboard, Palette, ScanSearch, Sparkles } from "lucide-react";
 import type { IconComponent } from "@/lib/icon-context";
 
 // Every settings page, grouped as the settings sidebar shows them. A new
 // page is one entry here plus its component in settings-view.tsx.
 
-export type SectionId = "appearance" | "models" | "review" | "shortcuts";
+export type SectionId = "appearance" | "models" | "review" | "guide" | "commit" | "shortcuts";
 
 export interface SettingsItem {
   id: SectionId;
@@ -21,6 +21,8 @@ export const SETTINGS_GROUPS: { title: string; items: SettingsItem[] }[] = [
     items: [
       { id: "models", label: "Models", icon: Boxes, keywords: "labs loadout anthropic openai claude codex gpt picker" },
       { id: "review", label: "Review", icon: ScanSearch, keywords: "reviewer code review prompt agent changes diff second opinion" },
+      { id: "guide", label: "Guide", icon: Sparkles, keywords: "review guide chunks groups overview summary diff explain sonnet model prompt" },
+      { id: "commit", label: "Commit", icon: GitCommitHorizontal, keywords: "commit message title push haiku mini model generate ai git" },
     ],
   },
   { title: "Workspace", items: [{ id: "shortcuts", label: "Keyboard shortcuts", icon: Keyboard, keywords: "keys hotkeys bindings" }] },

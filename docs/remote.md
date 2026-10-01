@@ -17,7 +17,7 @@ Workbench only listens on `127.0.0.1` unless told otherwise:
 | `WB_BIND` | `100.101.102.103` | Address to listen on. Use the Tailscale IP, not `0.0.0.0`. |
 | `WB_ORIGINS` | `macmini,macmini.tail1234.ts.net` | Host names your browser will use to reach it (checked on the WebSocket). The `WB_BIND` IP is always allowed. |
 | `WB_SSH_HOST` | `macmini` or `tiago@macmini` | What your laptop's editor connects to over SSH for "Open in". Defaults to `<user>@<hostname>`. |
-| `PORT` | `4000` | Port. |
+| `PORT` | `4242` | Port. |
 
 ## 2. On the server
 
@@ -44,7 +44,7 @@ After=network-online.target
 
 [Service]
 ExecStart=%h/dev/projects/workbench/server/_build/prod/rel/workbench/bin/workbench start
-Environment=PORT=4000 WB_BIND=100.101.102.103 WB_ORIGINS=box WB_SSH_HOST=box LANG=C.UTF-8
+Environment=PORT=4242 WB_BIND=100.101.102.103 WB_ORIGINS=box WB_SSH_HOST=box LANG=C.UTF-8
 Restart=on-failure
 
 [Install]
@@ -62,7 +62,7 @@ On the server:
 
 ```bash
 make link HOST=macmini
-# http://macmini:4000/?token=...
+# http://macmini:4242/?token=...
 ```
 
 Open that link in your laptop's browser. It sets a cookie for a year and

@@ -5,6 +5,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { sectionItem, type SectionId } from "./sections";
 import { AppearanceSettings } from "./appearance-settings";
+import { CommitSettingsPage } from "./commit-settings";
+import { GuideSettingsPage } from "./guide-settings";
 import { ModelsSettings } from "./models-settings";
 import { ReviewSettingsPage } from "./review-settings";
 import { ShortcutsSettings } from "./shortcuts-settings";
@@ -13,6 +15,8 @@ const PAGES: Record<SectionId, () => React.ReactNode> = {
   appearance: AppearanceSettings,
   models: ModelsSettings,
   review: ReviewSettingsPage,
+  guide: GuideSettingsPage,
+  commit: CommitSettingsPage,
   shortcuts: ShortcutsSettings,
 };
 

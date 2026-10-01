@@ -50,6 +50,8 @@ export function ChatView({ threadId }: { threadId: string }) {
   const [sendError, setSendError] = useState<string | null>(null);
   // parts of answers you're replying to; they go out with the next message
   const [quotes, setQuotesState] = useState<string[]>(() => pendingQuotes.get(threadId) ?? []);
+  const pendingRef = useRef(ts?.pending ?? []);
+  pendingRef.current = ts?.pending ?? [];
   const quotesRef = useRef(quotes);
   quotesRef.current = quotes;
   const setQuotes = (q: string[]) => {
@@ -125,11 +127,14 @@ export function ChatView({ threadId }: { threadId: string }) {
 
   const decide = useCallback(
     async (request_id: string, decision: Decision, answers?: Answers) => {
-      await push(channel.current, "approve", {
+      const plan = decision === "allow" && pendingRef.current.find((a) => a.request_id === request_id)?.tool === "ExitPlanMode";
+      const r = await push(channel.current, "approve", {
         request_id,
         decision,
         ...(answers ? { answers } : {}),
       });
+      // approving a plan leaves plan mode: keep the thread's mode in step with the agent
+      if (plan && r.ok) await push(channel.current, "set_mode", { mode: "default" });
     },
     [channel],
   );

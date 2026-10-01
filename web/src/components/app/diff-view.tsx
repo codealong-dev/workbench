@@ -1,13 +1,14 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileDiff } from "@pierre/diffs/react";
 import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
-import { ExternalLink, ScanSearch } from "lucide-react";
+import { ArrowUpFromLine, ExternalLink, Loader2, ScanSearch, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabItem, TabsList } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import type { DiffFile, DiffResult } from "@/contracts";
+import type { DiffFile, DiffResult, GuideData } from "@/contracts";
 import { fileIcon } from "@/lib/file-icons";
 import { useResolvedTheme } from "@/lib/theme";
+import { GuideView } from "./guide-view";
 
 const LAYOUT_KEY = "wb.diffStyle";
 
@@ -22,7 +23,7 @@ export function Counts({ additions, deletions, className, compact }: { additions
   );
 }
 
-const DiffBlock = memo(function DiffBlock(props: { file: FileDiffMetadata; diffStyle: "split" | "unified"; onOpenFile: (path: string) => void }) {
+export const DiffBlock = memo(function DiffBlock(props: { file: FileDiffMetadata; diffStyle: "split" | "unified"; onOpenFile: (path: string) => void }) {
   const themeType = useResolvedTheme();
   return (
     <FileDiff
@@ -50,6 +51,54 @@ const DiffBlock = memo(function DiffBlock(props: { file: FileDiffMetadata; diffS
     />
   );
 });
+
+/** The parsed patch of every file: the whole patch parsed once, or (when it was too large to send) each file's, loaded on demand. */
+export function usePatches(diff: DiffResult | null, loadFile: (path: string) => Promise<string | null>) {
+  const [lazy, setLazy] = useState<Record<string, FileDiffMetadata[]>>({});
+
+  // Parse the whole patch once per fetch; key by new file name.
+  const parsed = useMemo(() => {
+    if (!diff?.patch) return new Map<string, FileDiffMetadata>();
+    try {
+      const files = parsePatchFiles(diff.patch, `wb-${diff.patch.length}`).flatMap((p) => p.files);
+      return new Map(files.map((f) => [f.name, f]));
+    } catch {
+      return new Map<string, FileDiffMetadata>();
+    }
+  }, [diff?.patch]);
+
+  useEffect(() => setLazy({}), [diff]);
+
+  /** undefined until there is something to show for the file. */
+  const blocks = useCallback(
+    (path: string): FileDiffMetadata[] | undefined => (diff?.truncated ? lazy[path] : parsed.get(path) ? [parsed.get(path)!] : undefined),
+    [diff?.truncated, lazy, parsed],
+  );
+
+  const load = useCallback(
+    async (path: string) => {
+      if (!diff?.truncated || lazy[path]) return;
+      const patch = await loadFile(path);
+      if (patch) setLazy((l) => ({ ...l, [path]: parsePatchFiles(patch).flatMap((p) => p.files) }));
+    },
+    [diff?.truncated, lazy, loadFile],
+  );
+
+  return { blocks, load, lazy };
+}
+
+export type Patches = ReturnType<typeof usePatches>;
+
+/** How long a guide has been in the making. */
+function Elapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const s = Math.max(0, Math.floor((now - since) / 1000));
+  return <span className="tabular-nums">{Math.floor(s / 60)}:{String(s % 60).padStart(2, "0")}</span>;
+}
 
 /** Top bar: which file the diff is scrolled to (so it stays visible however long the file is), and the layout toggle. */
 function DiffHeader({ file, index, total, children }: { file: DiffFile | undefined; index: number; total: number; children: React.ReactNode }) {
@@ -87,8 +136,20 @@ export function DiffView(props: {
   loadFile: (path: string) => Promise<string | null>;
   /** Shows a Review button; resolves with an error message, or null. */
   onReview?: () => Promise<string | null>;
+  /** Shows a Push button, which opens the commit and push dialog. */
+  onPush?: () => void;
+  /** Shows the Guide tab: the changes grouped by a model. */
+  guide?: { data: GuideData | null; generate: () => Promise<string | null>; cancel: () => void };
 }) {
-  const { diff, error, focus, onActive, onOpenFile, loadFile, onReview } = props;
+  const { diff, error, focus, onActive, onOpenFile, loadFile, onReview, onPush, guide } = props;
+  const [view, setView] = useState<"changes" | "guide">("changes");
+  const [guideError, setGuideError] = useState<string | null>(null);
+  const generating = guide?.data?.state.status === "generating";
+  const generate = async () => {
+    if (!guide) return;
+    setView("guide");
+    setGuideError(await guide.generate());
+  };
   const [reviewing, setReviewing] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const review = async () => {
@@ -99,26 +160,14 @@ export function DiffView(props: {
     setReviewing(false);
   };
   const [diffStyle, setDiffStyle] = useState<"split" | "unified">(() => (localStorage.getItem(LAYOUT_KEY) as "split") ?? "unified");
-  const [lazy, setLazy] = useState<Record<string, FileDiffMetadata[]>>({});
+  const patches = usePatches(diff, loadFile);
+  const { lazy } = patches;
   const refs = useRef<Record<string, HTMLDivElement | null>>({});
   const scroller = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<string | null>(null);
   // After jumping to a file, keep it as the active one until the user scrolls themselves
   // (the smooth scroll would otherwise flick through every file on the way).
   const jumping = useRef(false);
-
-  // Parse the whole patch once per fetch; key by new file name.
-  const parsed = useMemo(() => {
-    if (!diff?.patch) return new Map<string, FileDiffMetadata>();
-    try {
-      const files = parsePatchFiles(diff.patch, `wb-${diff.patch.length}`).flatMap((p) => p.files);
-      return new Map(files.map((f) => [f.name, f]));
-    } catch {
-      return new Map<string, FileDiffMetadata>();
-    }
-  }, [diff?.patch]);
-
-  useEffect(() => setLazy({}), [diff]);
 
   const files = useMemo(() => diff?.files ?? [], [diff]);
   // The file being read: the last one whose top has scrolled past the top edge.
@@ -155,11 +204,8 @@ export function DiffView(props: {
     jumping.current = true;
     setActive(focus.path);
     void (async () => {
-      if (diff.truncated && !lazy[focus.path]) {
-        const patch = await loadFile(focus.path);
-        if (patch && !cancelled) setLazy((l) => ({ ...l, [focus.path]: parsePatchFiles(patch).flatMap((p) => p.files) }));
-      }
-      requestAnimationFrame(() => refs.current[focus.path]?.scrollIntoView({ behavior: "smooth", block: "start" }));
+      await patches.load(focus.path);
+      if (!cancelled) requestAnimationFrame(() => refs.current[focus.path]?.scrollIntoView({ behavior: "smooth", block: "start" }));
     })();
     return () => {
       cancelled = true;
@@ -168,30 +214,66 @@ export function DiffView(props: {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <DiffHeader file={files.find((f) => f.path === active) ?? files[0]} index={Math.max(0, files.findIndex((f) => f.path === active)) + 1} total={files.length}>
-        <Tabs
-          value={diffStyle}
-          onValueChange={(v) => {
-            setDiffStyle(v as "split");
-            localStorage.setItem(LAYOUT_KEY, v);
-          }}
-          size="compact"
-        >
-          <TabsList>
-            <TabItem value="unified" label="Unified" />
-            <TabItem value="split" label="Split" />
-          </TabsList>
-        </Tabs>
+      <DiffHeader
+        file={view === "changes" ? (files.find((f) => f.path === active) ?? files[0]) : undefined}
+        index={Math.max(0, files.findIndex((f) => f.path === active)) + 1}
+        total={files.length}
+      >
+        {guide && (
+          <Tabs value={view} onValueChange={(v) => setView(v as "changes" | "guide")} size="compact">
+            <TabsList>
+              <TabItem value="changes" label="Changes" />
+              <TabItem value="guide" label="Guide" />
+            </TabsList>
+          </Tabs>
+        )}
+        {view === "changes" && (
+          <Tabs
+            value={diffStyle}
+            onValueChange={(v) => {
+              setDiffStyle(v as "split");
+              localStorage.setItem(LAYOUT_KEY, v);
+            }}
+            size="compact"
+          >
+            <TabsList>
+              <TabItem value="unified" label="Unified" />
+              <TabItem value="split" label="Split" />
+            </TabsList>
+          </Tabs>
+        )}
+        {guide &&
+          (generating ? (
+            <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+              <Loader2 className="size-3.5 animate-spin" />
+              <Elapsed since={guide.data!.state.started_at ?? Date.now()} />
+              <Button size="compact" variant="ghost" onClick={guide.cancel}>
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            // a first guide is generated from the Guide tab's own button; Regenerate only shows there
+            view === "guide" && guide.data?.guide && (
+              <Button size="compact" variant="ghost" leadingIcon={Sparkles} disabled={files.length === 0} onClick={() => void generate()} title="Have a model group these changes into a new guide">
+                Regenerate
+              </Button>
+            )
+          ))}
         {onReview && (
           <Button size="compact" variant="ghost" leadingIcon={ScanSearch} disabled={reviewing || files.length === 0} onClick={() => void review()} title="Have a second agent review these changes">
             Review
+          </Button>
+        )}
+        {onPush && (
+          <Button size="compact" variant="ghost" leadingIcon={ArrowUpFromLine} onClick={onPush} title="Commit these changes and push the branch">
+            Push
           </Button>
         )}
       </DiffHeader>
 
       <div
         ref={scroller}
-        className="min-h-0 flex-1 overflow-y-auto"
+        className={cn("min-h-0 flex-1 overflow-y-auto", view === "guide" && "hidden")}
         onScroll={onScroll}
         onWheel={takeOver}
         onTouchMove={takeOver}
@@ -205,7 +287,7 @@ export function DiffView(props: {
 
         <div className="flex flex-col gap-3 p-3">
           {files.map((f) => {
-            const blocks = diff?.truncated ? lazy[f.path] : parsed.get(f.path) ? [parsed.get(f.path)!] : [];
+            const blocks = patches.blocks(f.path);
             if (!blocks?.length) {
               return f.binary ? (
                 <div key={f.path} ref={(el) => void (refs.current[f.path] = el)} className="rounded-lg px-3 py-2 text-[12px] text-muted-foreground shadow-surface-1">
@@ -225,6 +307,18 @@ export function DiffView(props: {
           })}
         </div>
       </div>
+
+      {view === "guide" && guide && (
+        <GuideView
+          diff={diff}
+          data={guide.data}
+          error={guideError}
+          patches={patches}
+          diffStyle={diffStyle}
+          onOpenFile={onOpenFile}
+          onGenerate={() => void generate()}
+        />
+      )}
     </div>
   );
 }

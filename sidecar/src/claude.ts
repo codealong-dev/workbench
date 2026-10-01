@@ -83,6 +83,8 @@ function start(op: Extract<Op, { op: "start" }>) {
             ? { behavior: "allow", updatedInput: withAnswers(input, r.answers ?? {}) }
             : { behavior: "deny", message: "The user skipped these questions. Continue with your best judgement, or ask again later." };
         }
+        if (r.decision === "deny" && tool === "ExitPlanMode")
+          return { behavior: "deny", message: "The user did not approve the plan. Stay in plan mode and wait for their feedback before revising it." };
         if (r.decision === "deny") return { behavior: "deny", message: "Denied by user" };
         return {
           behavior: "allow",

@@ -8,6 +8,7 @@ import { Markdown } from "./markdown";
 import { ToolCall } from "./tool-call";
 import { ApprovalCard } from "./approval-card";
 import { QuestionCard } from "./question-card";
+import { PlanCard } from "./plan-card";
 import { QuoteSelection } from "./quote-selection";
 import { ImageStrip } from "./images";
 import { splitQuotes } from "@/lib/quotes";
@@ -105,8 +106,8 @@ export function Timeline(props: {
 }) {
   const { items, live, pending, status, onDecide, agent, onQuote } = props;
   const frame = useRef<HTMLDivElement>(null);
-  // a question's own tool row would repeat the card while it is open
-  const asking = new Set(pending.filter((a) => a.tool === "AskUserQuestion").map((a) => a.request_id));
+  // a question's or plan's own tool row would repeat the card while it is open
+  const asking = new Set(pending.filter((a) => a.tool === "AskUserQuestion" || a.tool === "ExitPlanMode").map((a) => a.request_id));
   const scroller = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
@@ -171,6 +172,8 @@ export function Timeline(props: {
                 agent={agent}
                 onAnswer={(answers) => (answers ? onDecide(a.request_id, "answer", answers) : onDecide(a.request_id, "deny"))}
               />
+            ) : a.tool === "ExitPlanMode" ? (
+              <PlanCard key={a.request_id} approval={a} agent={agent} onDecide={(d) => onDecide(a.request_id, d)} />
             ) : (
               <ApprovalCard key={a.request_id} approval={a} onDecide={(d) => onDecide(a.request_id, d)} />
             ),

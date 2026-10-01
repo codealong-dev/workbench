@@ -36,7 +36,7 @@ A local-first workbench for running coding agents in parallel. A Phoenix app run
 
 ```bash
 make setup     # deps, DB, sidecar build
-make dev       # Phoenix :4000 + Vite :5173; open http://127.0.0.1:5173
+make dev       # Phoenix :4242 + Vite :5173; open http://127.0.0.1:5173
 ```
 
 Add a project (any local git repo), then press **N** or **+** for a new thread. Each thread gets its own worktree at `~/.workbench/worktrees/<project>/<slug>` on branch `wb/<slug>`, cut from the base branch you pick. Pick **Claude Code**, or **Fake** to work on the UI without spending tokens.
@@ -65,6 +65,8 @@ Archiving a thread stops the agent, runs teardown and deletes the worktree; its 
 
 **Review.** The Changes view has a **Review** button. It starts a second agent (a session on the same worktree, titled "Review") in a panel to the right of the changes, and sends it your review prompt plus which changes to look at (the base and the changed files). The first time, there is nothing to start yet, so it sends you to **Settings → Review**, where you pick the agent, its model, effort and permissions, and write the prompt (a default is filled in). It's saved on the server; after that the button just runs it. Each click is a fresh review session, and further ones open beside the one you already have open.
 
+**Guide.** The Changes view has a **Guide** tab, like Linear's review guide. **Generate guide** has a small model read the diff and group it into a few ordered chunks (core changes first, tests and low-signal files last), each with a title and a short explanation of why. You see a working indicator with a timer (and Cancel) while it runs, then each chunk as a row: its story and files on the left (tick a file as viewed), that chunk's diffs in a strip you scroll sideways on the right, and a rail of ticks at the edge to jump between chunks. The agent runs once, read-only, in the worktree and adds nothing to your chats. It defaults to Claude's Sonnet; **Settings → Guide** picks another agent, model and effort (say a Codex mini model) and the grouping instructions. The guide is kept per workspace: when the changes move on it stays, flagged as out of date, with new files in a last "Not in the guide" chunk until you regenerate.
+
 **Sidebar keys:** `[` hides or shows the sidebar (hover the left edge to peek while hidden), ⌘K / Ctrl+K searches threads by title, branch, agent or project, `N` opens a new thread.
 
 ### Project config
@@ -80,7 +82,7 @@ Optional `.workbench.json` at the repo root:
 
 Commands run with `sh -c` inside the worktree, with `WB_REPO` and `WB_WORKTREE` set. Setup output shows up in the thread as "Setup" tool calls; a failing step skips the rest but leaves the thread usable.
 
-`make build && cd server && mix phx.server` serves the built UI from Phoenix at http://127.0.0.1:4000.
+`make build && cd server && mix phx.server` serves the built UI from Phoenix at http://127.0.0.1:4242.
 
 ### As a Mac app
 
@@ -88,7 +90,7 @@ Commands run with `sh -c` inside the worktree, with `WB_REPO` and `WB_WORKTREE` 
 make install     # release + launchd agent: starts at login, restarts on crash
 ```
 
-Then in Safari open http://127.0.0.1:4000 and choose **File > Add to Dock** for a standalone window with its own Dock icon. `make logs`, `make restart`, `make stop` and `make uninstall` manage it; data stays in `~/.workbench`. After pulling new code, run `make install` again.
+Then in Safari open http://127.0.0.1:4242 and choose **File > Add to Dock** for a standalone window with its own Dock icon. `make logs`, `make restart`, `make stop` and `make uninstall` manage it; data stays in `~/.workbench`. After pulling new code, run `make install` again.
 
 Launched outside a terminal, Workbench reads `PATH` from your login shell at boot, so Homebrew/asdf tools (`git`, `node`, `zed`) are found.
 

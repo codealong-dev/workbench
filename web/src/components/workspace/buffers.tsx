@@ -2,7 +2,7 @@ import { createContext, lazy, Suspense, useContext, useEffect, useState, type Re
 import type { Channel } from "phoenix";
 import type { DockviewPanelApi, IDockviewPanelProps } from "dockview-react";
 import { FileDiff as FileDiffIcon, FlaskConical, Sparkle, SquareTerminal, type LucideIcon } from "lucide-react";
-import type { DiffResult, Editor, FileList, TerminalInfo, Thread } from "@/contracts";
+import type { DiffResult, Editor, FileList, GuideData, TerminalInfo, Thread } from "@/contracts";
 import { useStore } from "@/store";
 import { fileIcon } from "@/lib/file-icons";
 import { threadLabel } from "@/components/app/sidebar";
@@ -55,6 +55,8 @@ export interface Workspace {
   diff: DiffResult | null;
   diffError: string | null;
   diffLoading: boolean;
+  /** the review guide: the changes grouped by a model */
+  guide: { data: GuideData | null; generate: () => Promise<string | null>; cancel: () => void };
   refreshDiff: () => void;
   files: {
     list: FileList | null;
@@ -74,6 +76,8 @@ export interface Workspace {
   newChat: (provider: "claude" | "codex") => Promise<void>;
   /** Start the review agent on these changes in a panel at the right; resolves with an error message, or null. Sends you to Settings → Review first if it isn't set up. */
   startReview: () => Promise<string | null>;
+  /** Opens the commit and push dialog. */
+  openCommit: () => void;
   newTerminal: () => Promise<void>;
   quickOpen: () => void;
   /** files that changed on disk (from the worktree watcher); returns an unsubscribe */
@@ -182,6 +186,8 @@ function ChangesPanel() {
         onOpenFile={(p) => void ws.openIn(preferredEditor(), p)}
         loadFile={ws.loadPatch}
         onReview={ws.startReview}
+        onPush={ws.openCommit}
+        guide={ws.guide}
       />
     </div>
   );

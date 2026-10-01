@@ -135,6 +135,38 @@ export interface DiffResult {
   truncated?: boolean;
 }
 
+/** One chunk of a review guide: a few files that change for one reason. */
+export interface GuideGroup {
+  title: string;
+  summary: string | null;
+  /** paths of changed files, each in exactly one group */
+  files: string[];
+}
+
+/** A thread's changes grouped by a model (Workbench.Guide). */
+export interface Guide {
+  summary: string | null;
+  groups: GuideGroup[];
+  provider: Provider;
+  model: string | null;
+  /** ISO 8601 */
+  generated_at: string;
+}
+
+export interface GuideState {
+  status: "idle" | "generating" | "error";
+  /** ms since epoch, while generating */
+  started_at: number | null;
+  message: string | null;
+}
+
+export interface GuideData {
+  guide: Guide | null;
+  state: GuideState;
+  /** the changes moved on since the guide was written */
+  stale: boolean;
+}
+
 export type Editor = "zed" | "code" | "cursor" | "finder";
 
 export interface HostInfo {
@@ -147,6 +179,41 @@ export interface PushResult {
   remote: string;
   output: string;
   pr_url: string | null;
+}
+
+/** One file waiting to be committed. */
+export interface UncommittedFile {
+  path: string;
+  status: "added" | "modified" | "deleted" | "renamed" | "untracked";
+}
+
+export interface CommitStatus {
+  branch: string | null;
+  uncommitted: UncommittedFile[];
+  remote: string | null;
+  /** the branch it pushes to, e.g. origin/wb/x; null before the first push */
+  upstream: string | null;
+  /** commits no remote has */
+  unpushed: number;
+}
+
+/** A commit in the push preview. */
+export interface GraphCommit {
+  sha: string;
+  parents: string[];
+  author: string;
+  /** unix seconds */
+  at: number;
+  /** branches and tags pointing at it */
+  refs: string[];
+  subject: string;
+  unpushed: boolean;
+}
+
+export interface CommitGraph {
+  head: string;
+  /** newest first */
+  commits: GraphCommit[];
 }
 
 export interface FileList {
@@ -211,12 +278,35 @@ export interface ReviewSettings {
   prompt: string;
 }
 
+/** The agent that writes a thread's review guide, as set up in Settings → Guide. It always runs read-only. */
+export interface GuideSettings {
+  provider: Provider;
+  /** null = the agent's default model */
+  model: string | null;
+  /** null = the model's default effort */
+  effort: string | null;
+  /** how to group the changes; Workbench adds the reply format and the changes */
+  prompt: string;
+}
+
 /** App-wide preferences (Workbench.Settings), shared by every browser. */
 export interface Settings {
   labs: Record<Provider, LabSettings>;
   /** null until the review agent is set up */
   review: ReviewSettings | null;
+  /** null until saved; the guide then uses Claude's Sonnet */
+  guide: GuideSettings | null;
+  /** null until saved; each agent then uses its small default model (Settings → Commit) */
+  commit: CommitSettings | null;
 }
+
+/** The model that writes commit titles, per agent; an agent left out uses its default (COMMIT_DEFAULT_MODELS). */
+export interface CommitSettings {
+  models: Partial<Record<Provider, string>>;
+}
+
+/** What Workbench.Commit uses when nothing is saved. */
+export const COMMIT_DEFAULT_MODELS: Partial<Record<Provider, string>> = { claude: "haiku", codex: "gpt-5.1-codex-mini" };
 
 export const MAX_LOADOUT = 3;
 

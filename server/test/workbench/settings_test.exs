@@ -42,4 +42,23 @@ defmodule Workbench.SettingsTest do
     assert {:ok, %{"review" => nil}} = Settings.put("review", nil)
     assert Settings.review() == nil
   end
+
+  test "guide: none until saved, saved whole, validated, can be forgotten" do
+    assert Settings.all()["guide"] == nil
+    assert %{"provider" => "claude", "model" => "sonnet"} = Workbench.Guide.config()
+
+    guide = %{"provider" => "codex", "model" => "gpt-mini", "effort" => nil, "prompt" => "  Group it.  "}
+    Threads.subscribe_lobby()
+    assert {:ok, %{"guide" => saved}} = Settings.put("guide", guide)
+    assert saved == %{guide | "prompt" => "Group it."}
+    assert_receive {:settings, %{"guide" => ^saved}}
+    assert Workbench.Guide.config() == saved
+
+    assert {:error, "guide: pick an agent"} = Settings.put("guide", %{guide | "provider" => "gemini"})
+    assert {:error, "guide: write the instructions the guide writer gets"} = Settings.put("guide", %{guide | "prompt" => " "})
+    assert {:error, "guide: unknown field"} = Settings.put("guide", Map.put(guide, "mode", "plan"))
+    assert Settings.guide() == saved
+
+    assert {:ok, %{"guide" => nil}} = Settings.put("guide", nil)
+  end
 end

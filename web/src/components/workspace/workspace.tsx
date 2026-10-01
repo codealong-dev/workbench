@@ -11,11 +11,13 @@ import "dockview-react/dist/styles/dockview.css";
 import { lobbyChannel, push, useThreadChannel } from "@/hooks/use-channels";
 import { fetchFilePatch, useDiff } from "@/hooks/use-diff";
 import { useFiles } from "@/hooks/use-files";
+import { useGuide } from "@/hooks/use-guide";
 import { useTerminals } from "@/hooks/use-terminals";
 import { isRemote, remoteEditorUrl } from "@/lib/remote";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store";
 import type { Editor, PushResult, Thread } from "@/contracts";
+import { CommitDialog } from "@/components/app/commit-dialog";
 import { SidePanel, type PanelTab } from "@/components/app/side-panel";
 import { QuickOpen } from "@/components/app/quick-open";
 import { isAppShortcut } from "@/components/app/terminal-view";
@@ -111,7 +113,9 @@ export function WorkspaceView({
   const busy = threads.some((t) => t.status === "running" || t.status === "awaiting_approval");
   const [hasChanges, setHasChanges] = useState(false);
   const { diff, error: diffError, loading: diffLoading, refresh: refreshDiff } = useDiff(channel, root ? (busy ? "running" : "idle") : undefined, hasChanges);
+  const guide = useGuide(channel, !!root, diff);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [commitOpen, setCommitOpen] = useState(false);
   const files = useFiles(channel, root ? (busy ? "running" : "idle") : undefined, panel === "files" || quickOpen);
   const { terminals, create: createTerminal } = useTerminals(channel, true);
   const [version, setVersion] = useState(0);
@@ -299,9 +303,12 @@ export function WorkspaceView({
     check();
     const a = api.onDidAddPanel(check);
     const b = api.onDidRemovePanel(check);
+    // a restored layout adds its panels before this runs and may not report them: look again when one is shown
+    const c = api.onDidActivePanelChange(check);
     return () => {
       a.dispose();
       b.dispose();
+      c.dispose();
     };
   }, [api]);
 
@@ -358,6 +365,7 @@ export function WorkspaceView({
     diff,
     diffError,
     diffLoading,
+    guide,
     refreshDiff: () => void refreshDiff(),
     files,
     terminals,
@@ -369,6 +377,7 @@ export function WorkspaceView({
     loadPatch: (path) => fetchFilePatch(channel.current, path),
     newChat,
     startReview,
+    openCommit: () => setCommitOpen(true),
     newTerminal,
     quickOpen: () => setQuickOpen(true),
     onFilesChanged,
@@ -435,10 +444,10 @@ export function WorkspaceView({
               if (t) t.api.setActive();
               else void newTerminal();
             }}
-            onPush={onPush}
             onOpenIn={(editor) => openIn(editor)}
           />
         )}
+        {root && <CommitDialog thread={root} channel={channel} open={commitOpen} onOpenChange={setCommitOpen} onChanged={() => void refreshDiff()} />}
         <QuickOpen open={quickOpen} onOpenChange={setQuickOpen} files={files} recent={openFiles} onPick={(path) => open({ kind: "file", path })} />
       </div>
     </WorkspaceContext.Provider>

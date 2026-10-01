@@ -235,4 +235,41 @@ defmodule WorkbenchWeb.ChannelsTest do
     {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
     assert {:error, %{reason: "not_found"}} = subscribe_and_join(socket, "thread:" <> Ecto.UUID.generate(), %{})
   end
+
+  test "commit flow over the thread channel: status, suggested title, commit, push", %{dir: dir} do
+    repo = git_repo(dir)
+    File.write!(Path.join(repo, "a.txt"), "one\n")
+    git!(repo, ["add", "-A"])
+    git!(repo, ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init"])
+    bare = Path.join(dir, "origin.git")
+    {_, 0} = System.cmd("git", ["init", "-q", "--bare", bare])
+    git!(repo, ["remote", "add", "origin", bare])
+    {:ok, p} = Workbench.Projects.add(repo)
+    {:ok, t} = Threads.create(%{project_id: p.id, provider: "fake", title: "c"})
+    git!(t.worktree_path, ["config", "user.name", "t"])
+    git!(t.worktree_path, ["config", "user.email", "t@t"])
+    File.write!(Path.join(t.worktree_path, "b.txt"), "b\n")
+
+    {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
+    {:ok, _, chan} = subscribe_and_join(socket, "thread:" <> t.id, %{})
+
+    ref = push(chan, "commit.status", %{})
+    assert_reply ref, :ok, %{status: %{uncommitted: [%{path: "b.txt", status: "untracked"}], unpushed: 2}, graph: %{commits: [_ | _]}}, 5_000
+
+    ref = push(chan, "commit.suggest", %{})
+    assert_reply ref, :ok, %{title: "Update b.txt"}, 5_000
+
+    ref = push(chan, "commit", %{"title" => " "})
+    assert_reply ref, :error, %{reason: "write a commit title"}
+
+    ref = push(chan, "commit", %{"title" => "Add b"})
+    assert_reply ref, :ok, %{sha: sha, title: "Add b"}, 5_000
+
+    ref = push(chan, "push", %{})
+    assert_reply ref, :ok, %{branch: branch}, 5_000
+    assert git!(bare, ["rev-parse", branch]) == sha
+
+    ref = push(chan, "commit.status", %{})
+    assert_reply ref, :ok, %{status: %{uncommitted: [], unpushed: 0}, graph: %{commits: [%{subject: "Add b", unpushed: false} | _]}}, 5_000
+  end
 end

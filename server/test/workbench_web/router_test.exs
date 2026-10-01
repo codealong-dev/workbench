@@ -47,7 +47,7 @@ defmodule WorkbenchWeb.RouterTest do
     assert UserSocket.check_origin?(URI.parse("http://127.0.0.1:5173"))
     refute UserSocket.check_origin?(URI.parse("http://evil.example"))
     Application.put_env(:workbench, :allowed_origins, ["macmini"])
-    assert UserSocket.check_origin?(URI.parse("http://macmini:4000"))
+    assert UserSocket.check_origin?(URI.parse("http://macmini:4242"))
     Application.delete_env(:workbench, :allowed_origins)
   end
 

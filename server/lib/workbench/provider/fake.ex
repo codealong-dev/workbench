@@ -141,7 +141,13 @@ defmodule Workbench.Provider.Fake do
     end
   end
 
-  defp turn_steps(nil, n, text, images), do: generated_turn(n, text, images)
+  defp turn_steps(nil, n, text, images) do
+    cond do
+      String.contains?(text, "[workbench-guide]") -> guide_turn(n, text)
+      String.contains?(text, "[workbench-commit]") -> commit_turn(n, text)
+      true -> generated_turn(n, text, images)
+    end
+  end
 
   defp turn_steps(turns, n, _text, _images) do
     turns |> Enum.at(rem(n - 1, length(turns))) |> Enum.map(&suffix_ids(&1, n))
@@ -253,6 +259,38 @@ defmodule Workbench.Provider.Fake do
         "allowOther" => true,
         "secret" => false
       }
+    ]
+  end
+
+  # A review guide request (see Workbench.Guide): split the listed files in two chunks.
+  defp guide_turn(n, text) do
+    turn = "t#{n}"
+    files = Regex.scan(~r/^- (\S+) \(/m, text) |> Enum.map(&List.last/1)
+    {core, rest} = Enum.split(files, max(div(length(files) + 1, 2), 1))
+
+    groups =
+      [%{"title" => "Core changes", "summary" => "The main part of the change.", "files" => core}] ++
+        if(rest == [], do: [], else: [%{"title" => "Supporting changes", "summary" => "What the core change needs around it.", "files" => rest}])
+
+    reply = Jason.encode!(%{"summary" => "A fake guide over #{length(files)} file(s).", "groups" => groups})
+
+    [
+      %{"type" => "turn.started", "turn_id" => turn},
+      %{"fake" => "sleep", "ms" => 400},
+      item("g#{n}", "assistant_message", reply, turn),
+      %{"type" => "turn.completed", "turn_id" => turn, "status" => "ok", "usage" => %{"input_tokens" => 10, "output_tokens" => 10}}
+    ]
+  end
+
+  # A commit title request (see Workbench.Commit): one line naming the files.
+  defp commit_turn(n, text) do
+    turn = "t#{n}"
+    files = Regex.scan(~r/^- (\S+) \(/m, text) |> Enum.map(&List.last/1)
+
+    [
+      %{"type" => "turn.started", "turn_id" => turn},
+      item("c#{n}", "assistant_message", "Update #{Enum.join(files, ", ")}", turn),
+      %{"type" => "turn.completed", "turn_id" => turn, "status" => "ok", "usage" => %{"input_tokens" => 10, "output_tokens" => 10}}
     ]
   end
 

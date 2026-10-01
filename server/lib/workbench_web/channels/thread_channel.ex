@@ -20,6 +20,7 @@ defmodule WorkbenchWeb.ThreadChannel do
         Phoenix.PubSub.subscribe(Workbench.PubSub, Workbench.Terminals.owner_topic(owner))
         # tell editors when files change on disk (agents, terminals, other editors)
         Workbench.Watcher.subscribe(snap.thread.worktree_path)
+        Workbench.Guide.subscribe(owner)
         {:ok, snap, assign(socket, thread_id: id, provider: snap.thread.provider, terminal_owner: owner)}
 
       {:error, :not_found} ->
@@ -170,6 +171,64 @@ defmodule WorkbenchWeb.ThreadChannel do
     end
   end
 
+  # Committing the work (see Workbench.Commit): `commit.status` -> {status, graph},
+  # `commit.suggest` -> {title} (a model writes it, so the reply comes later),
+  # `commit` {title} -> {sha, title}.
+  def handle_in("commit.status", _params, socket) do
+    with %{} = thread <- Threads.get(socket.assigns.thread_id),
+         {:ok, status} <- Workbench.Commit.status(thread),
+         {:ok, graph} <- Workbench.Commit.graph(thread) do
+      {:reply, {:ok, %{status: status, graph: graph}}, socket}
+    else
+      nil -> {:reply, {:error, %{reason: "not_found"}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
+    end
+  end
+
+  def handle_in("commit.suggest", _params, socket) do
+    case Threads.get(socket.assigns.thread_id) do
+      nil ->
+        {:reply, {:error, %{reason: "not_found"}}, socket}
+
+      thread ->
+        ref = socket_ref(socket)
+
+        {:ok, _} =
+          Task.Supervisor.start_child(Workbench.TaskSupervisor, fn ->
+            case Workbench.Commit.suggest(thread) do
+              {:ok, title} -> reply(ref, {:ok, %{title: title}})
+              {:error, reason} -> reply(ref, {:error, %{reason: H.reason(reason)}})
+            end
+          end)
+
+        {:noreply, socket}
+    end
+  end
+
+  def handle_in("commit", %{"title" => title}, socket) do
+    with %{} = thread <- Threads.get(socket.assigns.thread_id),
+         {:ok, done} <- Workbench.Commit.commit(thread, title) do
+      {:reply, {:ok, done}, socket}
+    else
+      nil -> {:reply, {:error, %{reason: "not_found"}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
+    end
+  end
+
+  # The workspace's review guide: `guide` -> {guide, state, stale}, `guide.generate`
+  # and `guide.cancel` -> ok. Changes are pushed as `guide` with the same payload.
+  def handle_in("guide", _params, socket) do
+    {:reply, {:ok, Workbench.Guide.view(socket.assigns.terminal_owner)}, socket}
+  end
+
+  def handle_in("guide.generate", _params, socket) do
+    result(Workbench.Guide.generate(socket.assigns.terminal_owner), socket)
+  end
+
+  def handle_in("guide.cancel", _params, socket) do
+    result(Workbench.Guide.cancel(socket.assigns.terminal_owner), socket)
+  end
+
   def handle_in("archive", _params, socket) do
     result(Threads.archive(socket.assigns.thread_id), socket)
   end
@@ -193,6 +252,11 @@ defmodule WorkbenchWeb.ThreadChannel do
 
   def handle_info({:files_changed, _root, paths}, socket) do
     push(socket, "files.changed", %{paths: paths})
+    {:noreply, socket}
+  end
+
+  def handle_info({:guide, root_id}, socket) do
+    push(socket, "guide", Workbench.Guide.view(root_id))
     {:noreply, socket}
   end
 
