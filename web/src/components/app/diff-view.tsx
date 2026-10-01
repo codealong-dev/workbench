@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileDiff } from "@pierre/diffs/react";
 import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
-import { ArrowUpFromLine, ExternalLink, Loader2, ScanSearch, Sparkles } from "lucide-react";
+import { ArrowUpFromLine, BookOpenText, Columns2, ExternalLink, FileDiff as FileDiffIcon, Loader2, Rows2, ScanSearch, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabItem, TabsList } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -23,9 +23,28 @@ export function Counts({ additions, deletions, className, compact }: { additions
   );
 }
 
-export const DiffBlock = memo(function DiffBlock(props: { file: FileDiffMetadata; diffStyle: "split" | "unified"; onOpenFile: (path: string) => void }) {
+/** The line a double click landed on: its number in the new file (none for removed lines). */
+function clickedLine(e: React.MouseEvent): number | undefined {
+  for (const el of e.nativeEvent.composedPath()) {
+    if (!(el instanceof HTMLElement) || !el.hasAttribute("data-line")) continue;
+    if (el.getAttribute("data-line-type") === "change-deletion") return undefined;
+    const n = Number(el.getAttribute("data-line"));
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  }
+  return undefined;
+}
+
+export const DiffBlock = memo(function DiffBlock(props: {
+  file: FileDiffMetadata;
+  diffStyle: "split" | "unified";
+  onOpenFile: (path: string) => void;
+  /** Double click: the file, at the line clicked, in a panel. */
+  onOpenLine?: (path: string, line?: number) => void;
+}) {
   const themeType = useResolvedTheme();
+  const { onOpenLine } = props;
   return (
+    <div onDoubleClick={onOpenLine && props.file.type !== "deleted" ? (e) => onOpenLine(props.file.name, clickedLine(e)) : undefined}>
     <FileDiff
       fileDiff={props.file}
       options={{
@@ -49,6 +68,7 @@ export const DiffBlock = memo(function DiffBlock(props: { file: FileDiffMetadata
         ) : null
       }
     />
+    </div>
   );
 });
 
@@ -133,6 +153,7 @@ export function DiffView(props: {
   focus: { path: string; n: number } | null;
   onActive?: (path: string | null) => void;
   onOpenFile: (path: string) => void;
+  onOpenLine?: (path: string, line?: number) => void;
   loadFile: (path: string) => Promise<string | null>;
   /** Shows a Review button; resolves with an error message, or null. */
   onReview?: () => Promise<string | null>;
@@ -141,7 +162,7 @@ export function DiffView(props: {
   /** Shows the Guide tab: the changes grouped by a model. */
   guide?: { data: GuideData | null; generate: () => Promise<string | null>; cancel: () => void };
 }) {
-  const { diff, error, focus, onActive, onOpenFile, loadFile, onReview, onPush, guide } = props;
+  const { diff, error, focus, onActive, onOpenFile, onOpenLine, loadFile, onReview, onPush, guide } = props;
   const [view, setView] = useState<"changes" | "guide">("changes");
   const [guideError, setGuideError] = useState<string | null>(null);
   const generating = guide?.data?.state.status === "generating";
@@ -222,8 +243,8 @@ export function DiffView(props: {
         {guide && (
           <Tabs value={view} onValueChange={(v) => setView(v as "changes" | "guide")} size="compact">
             <TabsList>
-              <TabItem value="changes" label="Changes" />
-              <TabItem value="guide" label="Guide" />
+              <TabItem value="changes" label="Changes" icon={FileDiffIcon} iconOnly />
+              <TabItem value="guide" label="Guide" icon={BookOpenText} iconOnly />
             </TabsList>
           </Tabs>
         )}
@@ -237,8 +258,8 @@ export function DiffView(props: {
             size="compact"
           >
             <TabsList>
-              <TabItem value="unified" label="Unified" />
-              <TabItem value="split" label="Split" />
+              <TabItem value="unified" label="Unified diff" icon={Rows2} iconOnly />
+              <TabItem value="split" label="Split diff" icon={Columns2} iconOnly />
             </TabsList>
           </Tabs>
         )}
@@ -260,13 +281,13 @@ export function DiffView(props: {
             )
           ))}
         {onReview && (
-          <Button size="compact" variant="ghost" leadingIcon={ScanSearch} disabled={reviewing || files.length === 0} onClick={() => void review()} title="Have a second agent review these changes">
-            Review
+          <Button size="icon-compact" variant="ghost" aria-label="Review" disabled={reviewing || files.length === 0} onClick={() => void review()} title="Have a second agent review these changes">
+            {reviewing ? <Loader2 className="animate-spin" /> : <ScanSearch />}
           </Button>
         )}
         {onPush && (
-          <Button size="compact" variant="ghost" leadingIcon={ArrowUpFromLine} onClick={onPush} title="Commit these changes and push the branch">
-            Push
+          <Button size="icon-compact" variant="ghost" aria-label="Commit and push" onClick={onPush} title="Commit these changes and push the branch">
+            <ArrowUpFromLine />
           </Button>
         )}
       </DiffHeader>
@@ -300,7 +321,7 @@ export function DiffView(props: {
             return (
               <div key={f.path} ref={(el) => void (refs.current[f.path] = el)} className="wb-diff scroll-mt-3 overflow-hidden rounded-lg shadow-surface-1">
                 {blocks.map((b, i) => (
-                  <DiffBlock key={i} file={b} diffStyle={diffStyle} onOpenFile={onOpenFile} />
+                  <DiffBlock key={i} file={b} diffStyle={diffStyle} onOpenFile={onOpenFile} onOpenLine={onOpenLine} />
                 ))}
               </div>
             );
@@ -316,6 +337,7 @@ export function DiffView(props: {
           patches={patches}
           diffStyle={diffStyle}
           onOpenFile={onOpenFile}
+          onOpenLine={onOpenLine}
           onGenerate={() => void generate()}
         />
       )}

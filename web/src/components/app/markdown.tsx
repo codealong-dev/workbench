@@ -1,6 +1,8 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useContext, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { WorkspaceContext } from "@/components/workspace/buffers";
+import { parseFileLink } from "@/lib/file-links";
 
 // Shiki is loaded on first use; highlighted HTML is cached per (lang, code).
 let highlighter: Promise<typeof import("shiki")> | null = null;
@@ -42,6 +44,8 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
 
 /** Markdown for completed messages. `streaming` skips highlighting until the block is final. */
 export const Markdown = memo(function Markdown({ text, streaming = false }: { text: string; streaming?: boolean }) {
+  // inside a workspace, links to files open in the app instead of going nowhere
+  const ws = useContext(WorkspaceContext);
   return (
     <div className="wb-prose">
       <ReactMarkdown
@@ -61,11 +65,27 @@ export const Markdown = memo(function Markdown({ text, streaming = false }: { te
               <CodeBlock lang={lang ?? "text"} code={body} />
             );
           },
-          a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noreferrer">
-              {children}
-            </a>
-          ),
+          a: ({ href, children }) => {
+            const file = ws ? parseFileLink(href, ws.worktreePath) : null;
+            if (ws && file)
+              return (
+                <a
+                  href={href}
+                  title={`Open ${file.path}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    ws.openFile(file.path, file.line ? { line: file.line, end: file.end } : undefined);
+                  }}
+                >
+                  {children}
+                </a>
+              );
+            return (
+              <a href={href} target="_blank" rel="noreferrer">
+                {children}
+              </a>
+            );
+          },
         }}
       >
         {text}

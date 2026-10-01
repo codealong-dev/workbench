@@ -7,6 +7,7 @@ import {
   CornerDownRight,
   FlaskConical,
   FolderPlus,
+  FileText,
   Link2,
   Monitor,
   Moon,
@@ -150,8 +151,10 @@ export function InsetTrigger({ className }: { className?: string }) {
 
 interface RowHandlers {
   selected: string | null;
+  contextRoot: string | null;
   onSelect: (id: string) => void;
-  onNewSession: (parent: Thread, provider: Provider) => void;
+  onOpenContext: (id: string) => void;
+  onNewSession: (parent: Thread, provider: Provider) => Promise<void>;
   onArchive: (t: Thread) => void;
 }
 
@@ -176,6 +179,20 @@ function CopyLinkAction({ id }: { id: string }) {
 function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thread[]; open: boolean; onToggle: () => void; h: RowHandlers }) {
   const hasSessions = sessions.length > 0;
   const agents = useEnabledLabs().filter((l) => l.id !== "fake");
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const newSession = async (provider: Provider) => {
+    if (creating) return;
+    setCreating(true);
+    setError(null);
+    try {
+      await h.onNewSession(t, provider);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create session");
+    } finally {
+      setCreating(false);
+    }
+  };
   const count = t.message_count ?? 0;
   const toggle = (e: MouseEvent) => {
     e.stopPropagation();
@@ -186,43 +203,51 @@ function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thre
     <SidebarMenuItem>
       <SidebarMenuButton
         icon={statusIcon(t.status)}
-        isActive={h.selected === t.id}
+        isActive={h.selected === t.id && !h.contextRoot}
         onClick={() => h.onSelect(t.id)}
         title={t.branch ? `${threadLabel(t)}\n${t.branch}` : threadLabel(t)}
-        className={hasSessions ? "group/parent-row" : undefined}
-        aria-expanded={hasSessions ? open : undefined}
+        className="group/parent-row"
+        aria-expanded={open}
       >
         <span className="min-w-0 truncate">{threadLabel(t)}</span>
-        {hasSessions && (
-          <span
-            role="button"
-            tabIndex={-1}
-            aria-label={open ? "Hide sessions" : "Show sessions"}
-            onClick={toggle}
-            // closed: always shown, so hidden sessions are discoverable; open: only on hover
-            className={cn(
-              "ml-auto -mr-0.5 size-6 shrink-0 items-center justify-center rounded-md hover:bg-hover",
-              open ? "hidden group-hover/parent-row:flex group-focus-visible/parent-row:flex" : "flex",
-            )}
-          >
-            <motion.span className="inline-flex" animate={{ rotate: open ? 90 : 0 }} transition={spring.fast}>
-              <ChevronRight
-                size={16}
-                strokeWidth={1.5}
-                className="text-muted-foreground"
-              />
-            </motion.span>
-          </span>
-        )}
+        <span
+          role="button"
+          tabIndex={-1}
+          aria-label={open ? "Hide thread pages and sessions" : "Show thread pages and sessions"}
+          onClick={toggle}
+          // closed: always shown, so hidden sessions are discoverable; open: only on hover
+          className={cn(
+            "ml-auto -mr-0.5 size-6 shrink-0 items-center justify-center rounded-md hover:bg-hover",
+            open ? "hidden group-hover/parent-row:flex group-focus-visible/parent-row:flex" : "flex",
+          )}
+        >
+          <motion.span className="inline-flex" animate={{ rotate: open ? 90 : 0 }} transition={spring.fast}>
+            <ChevronRight
+              size={16}
+              strokeWidth={1.5}
+              className="text-muted-foreground"
+            />
+          </motion.span>
+        </span>
       </SidebarMenuButton>
       {count > 0 && <SidebarMenuBadge title={`${count} message${count === 1 ? "" : "s"}`}>{count}</SidebarMenuBadge>}
       <SidebarMenuActions showOnHover>
-        <Tooltip content="Branch thread (coming soon)" side="top">
-          {/* placeholder: branching a conversation lands later */}
-          <SidebarMenuAction aria-label="Branch thread" aria-disabled onClick={(e) => e.preventDefault()}>
-            <CornerDownRight />
-          </SidebarMenuAction>
-        </Tooltip>
+        <DropdownMenu>
+          <Tooltip content={agents.length === 0 ? "Enable an agent in Settings to branch" : "Branch thread"} side="top">
+            <DropdownTrigger
+              render={
+                <SidebarMenuAction aria-label="Branch thread" disabled={creating || agents.length === 0}>
+                  <CornerDownRight />
+                </SidebarMenuAction>
+              }
+            />
+          </Tooltip>
+          <DropdownContent className="w-[200px] min-w-0" align="start" sideOffset={4}>
+            {agents.map((l, i) => (
+              <MenuItem key={l.id} index={i} icon={l.icon} label={l.agent} onSelect={() => void newSession(l.id)} />
+            ))}
+          </DropdownContent>
+        </DropdownMenu>
         <CopyLinkAction id={t.id} />
         <DropdownMenu>
           <DropdownTrigger
@@ -233,21 +258,27 @@ function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thre
             }
           />
           <DropdownContent className="w-[240px] min-w-0" align="start" sideOffset={4}>
-            {agents.map((l, i) => (
-              <MenuItem key={l.id} index={i} icon={l.icon} label={`New ${PROVIDER_NAME[l.id]} session here`} onSelect={() => h.onNewSession(t, l.id)} />
-            ))}
-            <MenuItem index={agents.length} icon={Archive} label={hasSessions ? "Archive thread and sessions…" : "Archive…"} onSelect={() => h.onArchive(t)} />
+            <MenuItem index={0} icon={Archive} label={hasSessions ? "Archive thread and sessions…" : "Archive…"} onSelect={() => h.onArchive(t)} />
           </DropdownContent>
         </DropdownMenu>
       </SidebarMenuActions>
+      {error && <p role="alert" className="px-2 py-1 text-[12px] text-destructive">{error}</p>}
 
-      {hasSessions && (
-        <SidebarMenuSub open={open}>
-          {sessions.map((s) => (
-            <SessionRow key={s.id} t={s} h={h} />
-          ))}
-        </SidebarMenuSub>
-      )}
+      <SidebarMenuSub open={open}>
+        <SidebarMenuSubItem>
+          <SidebarMenuSubButton
+            href={`#/t/${t.id}/context`}
+            icon={FileText}
+            isActive={h.contextRoot === t.id}
+            onClick={(e) => { e.preventDefault(); h.onOpenContext(t.id); }}
+          >
+            Initial context
+          </SidebarMenuSubButton>
+        </SidebarMenuSubItem>
+        {sessions.map((s) => (
+          <SessionRow key={s.id} t={s} h={h} />
+        ))}
+      </SidebarMenuSub>
     </SidebarMenuItem>
   );
 }
@@ -369,8 +400,10 @@ function Group(props: {
 
 export function AppSidebar(props: {
   selected: string | null;
+  contextRoot: string | null;
   connected: boolean;
   onSelect: (id: string) => void;
+  onOpenContext: (id: string) => void;
   onNewThread: (projectId?: string) => void;
   onAddProject: () => void;
   onSettings: () => void;
@@ -427,6 +460,11 @@ export function AppSidebar(props: {
 
   const h: RowHandlers = {
     selected,
+    contextRoot: props.contextRoot,
+    onOpenContext: (id) => {
+      props.onOpenContext(id);
+      if (isMobile) setOpenMobile(false);
+    },
     onSelect: (id) => {
       onSelect(id);
       if (isMobile) setOpenMobile(false);
@@ -434,7 +472,8 @@ export function AppSidebar(props: {
     onArchive: setArchiving,
     onNewSession: async (parent, provider) => {
       const r = await push(lobbyChannel(), "thread.create", { parent_id: parent.id, provider, mode: parent.mode });
-      if (r.ok) onSelect((r.payload as { thread: Thread }).thread.id);
+      if (!r.ok) throw new Error(r.reason);
+      h.onSelect((r.payload as { thread: Thread }).thread.id);
     },
   };
 

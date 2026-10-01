@@ -7,7 +7,7 @@ import { StatusDot } from "@/components/app/status-dot";
 import { cn } from "@/lib/utils";
 import { useEnabledLabs, type Lab } from "@/lib/labs";
 import { useBufferTitle, useWorkspace, type Buffer } from "./buffers";
-import { editorKey, useEditors } from "@/lib/editor-state";
+import { contextEditorKey, editorKey, useEditors } from "@/lib/editor-state";
 
 /** A tab in the top strip: icon, title, close. Middle-click closes too. */
 export function BufferTab({ api, params }: IDockviewPanelHeaderProps<Buffer>) {
@@ -27,7 +27,8 @@ export function BufferTab({ api, params }: IDockviewPanelHeaderProps<Buffer>) {
   const busy = thread && thread.status !== "idle";
   const ws = useWorkspace();
   const path = params.kind === "file" || params.kind === "diff" ? params.path : null;
-  const dirty = useEditors((s) => (path ? !!s.dirty[editorKey(ws.rootId, path)] : false));
+  const key = params.kind === "context" ? contextEditorKey(ws.rootId) : path ? editorKey(ws.rootId, path) : null;
+  const dirty = useEditors((s) => (key ? !!s.dirty[key] : false));
   const preview = (params.kind === "file" || params.kind === "diff") && !!params.preview;
   const pin = () => preview && api.updateParameters({ ...params, preview: false });
   // editing a preview keeps it
@@ -72,13 +73,13 @@ export function BufferTab({ api, params }: IDockviewPanelHeaderProps<Buffer>) {
   );
 }
 
-/** "+" at the end of every tab strip: new chat, terminal, or open a file. */
+/** "+" right after the last tab of every strip: new chat, terminal, or open a file. */
 export function NewBufferMenu({ group }: IDockviewHeaderActionsProps) {
   const ws = useWorkspace();
   const agents = useEnabledLabs().filter((l): l is Lab & { id: "claude" | "codex" } => l.id !== "fake");
   const here = () => group.api.setActive();
   return (
-    <div className="flex h-full items-center pr-1">
+    <div className="flex h-full items-center">
       <DropdownMenu>
         <DropdownTrigger
           render={
@@ -92,11 +93,11 @@ export function NewBufferMenu({ group }: IDockviewHeaderActionsProps) {
             </button>
           }
         />
-        <DropdownContent className="w-[220px] min-w-0" align="end" sideOffset={4}>
+        <DropdownContent className="w-[180px] min-w-0" align="start" sideOffset={4}>
           {agents.map((l, i) => (
-            <MenuItem key={l.id} index={i} icon={l.icon} label={`New ${l.agent} chat`} onSelect={() => void ws.newChat(l.id)} />
+            <MenuItem key={l.id} index={i} icon={l.icon} label={l.agent} onSelect={() => void ws.newChat(l.id)} />
           ))}
-          <MenuItem index={agents.length} icon={SquareTerminal} label="New terminal" onSelect={() => void ws.newTerminal()} />
+          <MenuItem index={agents.length} icon={SquareTerminal} label="Terminal" onSelect={() => void ws.newTerminal()} />
           <DropdownSeparator />
           <MenuItem index={agents.length + 1} icon={FileSearch} label="Open file…  ⌘P" onSelect={ws.quickOpen} />
         </DropdownContent>

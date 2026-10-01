@@ -83,7 +83,7 @@ export function TerminalView({ id, active, focusSignal, onExit }: { id: string; 
 
   useEffect(() => {
     const t = new Terminal({
-      fontFamily: 'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace',
+      fontFamily: 'Menlo, "SF Mono", SFMono-Regular, ui-monospace, Consolas, monospace',
       fontSize: 12,
       lineHeight: 1.25,
       cursorBlink: true,

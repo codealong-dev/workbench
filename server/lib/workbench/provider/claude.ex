@@ -35,6 +35,7 @@ defmodule Workbench.Provider.Claude do
             op: "start",
             cwd: opts.cwd,
             resume: opts[:resume],
+            initial_context: opts[:initial_context],
             model: opts[:model],
             effort: opts[:effort],
             mode: opts.mode

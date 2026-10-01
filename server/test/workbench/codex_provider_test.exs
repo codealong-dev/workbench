@@ -6,6 +6,46 @@ defmodule Workbench.CodexProviderTest do
   @recorded Path.expand("../../../fixtures/codex/interrupted-turn.jsonl", __DIR__)
 
   describe "offline: a recorded codex-cli 0.159 session" do
+    test "shared context is supplied on start, resume, and fallback to a fresh session" do
+      me = self()
+      context = "ENG-42\nTask details"
+
+      for resume <- [nil, "old-thread"] do
+        p =
+          Codex.new_state(
+            %{io: :none, pid: me},
+            %{cwd: "/w", mode: "default", resume: resume, initial_context: context},
+            &send(me, {:wrote, &1})
+          )
+
+        p = %{p | calls: %{1 => :initialize}, next_id: 2}
+        {[], p} = Codex.handle_line(p, Jason.encode!(%{"id" => 1, "result" => %{}}))
+        assert_received {:wrote, %{"method" => "initialized"}}
+        method = if resume, do: "thread/resume", else: "thread/start"
+
+        assert_received {:wrote,
+                         %{
+                           "id" => 2,
+                           "method" => ^method,
+                           "params" => %{"developerInstructions" => ^context}
+                         }}
+
+        if resume do
+          {[_], _} =
+            Codex.handle_line(
+              p,
+              Jason.encode!(%{"id" => 2, "error" => %{"message" => "not found"}})
+            )
+
+          assert_received {:wrote,
+                           %{
+                             "method" => "thread/start",
+                             "params" => %{"developerInstructions" => ^context}
+                           }}
+        end
+      end
+    end
+
     test "handshake, turn and interrupt map to our events and requests" do
       me = self()
       opts = %{cwd: "/work/proj", mode: "default", resume: nil}

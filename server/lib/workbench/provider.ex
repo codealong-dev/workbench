@@ -27,6 +27,7 @@ defmodule Workbench.Provider do
   @type decision :: String.t()
 
   @type open_opts :: %{
+          optional(:initial_context) => String.t() | nil,
           thread_id: String.t(),
           cwd: String.t(),
           resume: String.t() | nil,

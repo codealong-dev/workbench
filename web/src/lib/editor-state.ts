@@ -28,3 +28,4 @@ export const useEditors = create<EditorState>((set) => ({
 }));
 
 export const editorKey = (root: string, path: string) => `${root}|${path}`;
+export const contextEditorKey = (root: string) => `context:${root}`;

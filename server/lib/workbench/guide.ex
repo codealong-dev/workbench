@@ -275,7 +275,7 @@ defmodule Workbench.Guide do
 
   # -- the one-shot turn --------------------------------------------------------
 
-  defp ask(thread, cfg, text), do: OneShot.ask(cfg, text, id: "guide-#{thread.id}", cwd: thread.worktree_path, timeout: @timeout_ms, label: "guide")
+  defp ask(thread, cfg, text), do: OneShot.ask(cfg, text, id: "guide-#{thread.id}", cwd: thread.worktree_path, initial_context: thread.initial_context, timeout: @timeout_ms, label: "guide")
 
   # -- reading the reply --------------------------------------------------------
 

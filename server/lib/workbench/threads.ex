@@ -34,6 +34,63 @@ defmodule Workbench.Threads do
 
   def get(id), do: Repo.get(Thread, id)
 
+  @doc "The shared context page, resolved to the workspace's root."
+  def context(id) do
+    case context_thread(id) do
+      %Thread{} = root -> {:ok, context_document(root.initial_context)}
+      nil -> {:error, :not_found}
+    end
+  end
+
+  def context_topic(id), do: "wb:context:" <> id
+
+  def context_document(content) do
+    content = content || ""
+    %{content: content, hash: Workbench.Files.hash(content)}
+  end
+
+  @doc "Save shared context with conflict detection; existing agents pick it up on their next turn."
+  def write_context(id, content, base_hash) when is_binary(content) do
+    case context_thread(id) do
+      %Thread{id: root_id} -> call(root_id, {:write_context, content, base_hash})
+      nil -> {:error, :not_found}
+    end
+  end
+
+  defp context_thread(id) do
+    case get(id) do
+      %Thread{archived_at: nil, parent_id: nil} = root -> root
+      %Thread{archived_at: nil, parent_id: root_id} ->
+        case get(root_id) do
+          %Thread{archived_at: nil} = root -> root
+          _ -> nil
+        end
+      _ -> nil
+    end
+  end
+
+  @doc false
+  # Called by the root server so concurrent saves are serialized.
+  def persist_context(root, content, base_hash) do
+    now = context_document(get(root.id).initial_context)
+
+    if is_binary(base_hash) and base_hash != now.hash do
+      {:error, {:conflict, now}}
+    else
+      value = if String.trim(content) == "", do: nil, else: content
+      query = from t in Thread, where: (t.id == ^root.id or t.parent_id == ^root.id) and is_nil(t.archived_at)
+
+      with {:ok, threads} <- Repo.transaction(fn ->
+        Repo.update_all(query, set: [initial_context: value, updated_at: DateTime.utc_now()])
+        Repo.all(query)
+      end) do
+        for thread <- threads, do: broadcast_lobby({:thread_upserted, thread})
+        Phoenix.PubSub.broadcast(Workbench.PubSub, context_topic(root.id), {:context_changed, value})
+        {:ok, context_document(value)}
+      end
+    end
+  end
+
   @doc """
   Create a thread.
 
@@ -44,7 +101,8 @@ defmodule Workbench.Threads do
 
   With `parent_id`, the thread is another session in the parent's worktree:
   same project, path and branch, no new worktree and no setup. Sessions
-  nest one level; a child of a child hangs off the root.
+  nest one level; a child of a child hangs off the root. Every session
+  inherits the root's initial context.
 
   Without a project, `worktree_path` must be an existing directory (M1 mode).
   """
@@ -60,7 +118,8 @@ defmodule Workbench.Threads do
           project_id: root.project_id,
           worktree_path: root.worktree_path,
           branch: root.branch,
-          base_ref: root.base_ref
+          base_ref: root.base_ref,
+          initial_context: root.initial_context
         })
         |> insert()
 

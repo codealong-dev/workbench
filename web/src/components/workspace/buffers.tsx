@@ -1,7 +1,7 @@
 import { createContext, lazy, Suspense, useContext, useEffect, useState, type RefObject } from "react";
 import type { Channel } from "phoenix";
 import type { DockviewPanelApi, IDockviewPanelProps } from "dockview-react";
-import { FileDiff as FileDiffIcon, FlaskConical, Sparkle, SquareTerminal, type LucideIcon } from "lucide-react";
+import { FileDiff as FileDiffIcon, FileText, FlaskConical, Sparkle, SquareTerminal, type LucideIcon } from "lucide-react";
 import type { DiffResult, Editor, FileList, GuideData, TerminalInfo, Thread } from "@/contracts";
 import { useStore } from "@/store";
 import { fileIcon } from "@/lib/file-icons";
@@ -17,8 +17,16 @@ export type Buffer =
   | { kind: "chat"; threadId: string }
   | { kind: "terminal"; terminalId: string }
   | { kind: "changes" }
-  | { kind: "file"; path: string; preview?: boolean }
+  | { kind: "context" }
+  | { kind: "file"; path: string; preview?: boolean; reveal?: Reveal }
   | { kind: "diff"; path: string; from?: string; preview?: boolean };
+
+/** Lines to show when a file opens; `n` changes on every request so the same lines can be revealed again. */
+export interface Reveal {
+  line: number;
+  end?: number;
+  n: number;
+}
 
 export const bufferId = (b: Buffer): string => {
   switch (b.kind) {
@@ -28,6 +36,8 @@ export const bufferId = (b: Buffer): string => {
       return `term:${b.terminalId}`;
     case "changes":
       return "changes";
+    case "context":
+      return "context";
     case "file":
       return `file:${b.path}`;
     case "diff":
@@ -70,7 +80,13 @@ export interface Workspace {
   /** the changes buffer scrolls here */
   focus: { path: string; n: number } | null;
   setActiveChange: (path: string | null) => void;
+  /** the worktree on disk; links from agents are resolved against it */
+  worktreePath: string;
   open: (b: Buffer, o?: OpenOptions) => void;
+  /** Opens a file in a panel at the right, at these lines. */
+  openFile: (path: string, lines?: { line: number; end?: number }) => void;
+  /** Double click in the review: the file at that line, in the panel left of the review if there is one, else in the review's panel. */
+  openFromReview: (path: string, line?: number) => void;
   openIn: (editor: Editor, path?: string) => Promise<string | null>;
   loadPatch: (path: string) => Promise<string | null>;
   newChat: (provider: "claude" | "codex") => Promise<void>;
@@ -140,6 +156,8 @@ export function useBufferTitle(b: Buffer): {
         icon: FileDiffIcon,
         hint: ws?.diff ? `against ${ws.diff.base}` : undefined,
       };
+    case "context":
+      return { title: "Initial context", icon: FileText };
     case "file":
     case "diff": {
       const name = b.path.slice(b.path.lastIndexOf("/") + 1);
@@ -184,6 +202,7 @@ function ChangesPanel() {
         focus={ws.focus}
         onActive={ws.setActiveChange}
         onOpenFile={(p) => void ws.openIn(preferredEditor(), p)}
+        onOpenLine={ws.openFromReview}
         loadFile={ws.loadPatch}
         onReview={ws.startReview}
         onPush={ws.openCommit}
@@ -196,12 +215,13 @@ function ChangesPanel() {
 // Monaco is big: load it with the first editor tab.
 const FileEditor = lazy(() => import("@/components/editor/editors").then((m) => ({ default: m.FileEditor })));
 const FileDiffEditor = lazy(() => import("@/components/editor/editors").then((m) => ({ default: m.FileDiffEditor })));
+const ContextEditor = lazy(() => import("@/components/editor/editors").then((m) => ({ default: m.ContextEditor })));
 const loading = <div className="p-4 text-[12px] text-muted-foreground">Loading editor…</div>;
 
 function FilePanel({ params }: IDockviewPanelProps<Buffer & { kind: "file" }>) {
   return (
     <Suspense fallback={loading}>
-      <FileEditor path={params.path} />
+      <FileEditor path={params.path} reveal={params.reveal} />
     </Suspense>
   );
 }
@@ -214,10 +234,15 @@ function DiffPanel({ params }: IDockviewPanelProps<Buffer & { kind: "diff" }>) {
   );
 }
 
+function ContextPanel() {
+  return <Suspense fallback={loading}><ContextEditor /></Suspense>;
+}
+
 export const PANEL_COMPONENTS = {
   chat: ChatPanel,
   terminal: TerminalPanel,
   changes: ChangesPanel,
+  context: ContextPanel,
   file: FilePanel,
   diff: DiffPanel,
 } as Record<string, React.FunctionComponent<IDockviewPanelProps>>;

@@ -97,6 +97,26 @@ defmodule Workbench.ProjectsTest do
   end
 
   describe "sessions (child threads)" do
+    test "persist initial context and inherit it from the root, including nested sessions", %{repo: repo} do
+      {:ok, p} = Projects.add(repo)
+      context = "Linear: ENG-42\nNotion: https://notion.so/spec\nKeep existing API behavior."
+      {:ok, root} = Threads.create(%{project_id: p.id, provider: "fake", isolate: false, initial_context: context})
+      {:ok, child} = Threads.create(%{parent_id: root.id, provider: "claude", initial_context: "override"})
+      {:ok, nested} = Threads.create(%{parent_id: child.id, provider: "codex"})
+
+      for t <- [root, child, nested] do
+        assert Threads.get(t.id).initial_context == context
+        assert Workbench.Threads.Thread.to_json(t).initial_context == context
+        assert Items.last(t.id) == []
+      end
+
+      assert nested.parent_id == root.id
+      blank = create_thread(repo, %{initial_context: "  \n "})
+      assert blank.initial_context == nil
+      {:ok, blank_child} = Threads.create(%{parent_id: blank.id, provider: "fake", initial_context: "override"})
+      assert blank_child.initial_context == nil
+    end
+
     test "share the root's worktree and branch, skip setup, nest one level", %{repo: repo} do
       {:ok, p} = Projects.add(repo)
       {:ok, root} = Threads.create(%{project_id: p.id, provider: "fake", title: "root"})

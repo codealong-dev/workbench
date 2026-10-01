@@ -13,6 +13,7 @@ defmodule Workbench.Threads.Thread do
     field :parent_id, :binary_id
     field :provider, :string
     field :title, :string
+    field :initial_context, :string
     field :branch, :string
     field :base_ref, :string
     field :worktree_path, :string
@@ -32,7 +33,19 @@ defmodule Workbench.Threads.Thread do
 
   def create_changeset(attrs) do
     %__MODULE__{}
-    |> cast(attrs, [:project_id, :parent_id, :provider, :title, :branch, :base_ref, :worktree_path, :mode, :model, :effort])
+    |> cast(attrs, [
+      :project_id,
+      :parent_id,
+      :provider,
+      :title,
+      :initial_context,
+      :branch,
+      :base_ref,
+      :worktree_path,
+      :mode,
+      :model,
+      :effort
+    ])
     |> validate_required([:provider, :worktree_path])
     |> validate_inclusion(:provider, @providers)
     |> validate_inclusion(:mode, @modes)
@@ -51,6 +64,7 @@ defmodule Workbench.Threads.Thread do
       :parent_id,
       :provider,
       :title,
+      :initial_context,
       :branch,
       :base_ref,
       :worktree_path,

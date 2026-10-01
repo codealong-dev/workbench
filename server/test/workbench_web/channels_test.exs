@@ -41,6 +41,43 @@ defmodule WorkbenchWeb.ChannelsTest do
   end
 
   # 1x1 PNG
+  test "context page can be edited from a session, and stale writes return a conflict", %{dir: dir} do
+    root = create_thread(dir, %{initial_context: "Original task"})
+    {:ok, child} = Threads.create(%{parent_id: root.id, provider: "fake"})
+    {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
+    {:ok, _, channel} = subscribe_and_join(socket, "thread:" <> child.id, %{})
+    ref = push(channel, "context.get", %{})
+    assert_reply ref, :ok, %{content: "Original task", hash: hash}
+    ref = push(channel, "context.write", %{"content" => "Updated task", "base_hash" => hash})
+    assert_reply ref, :ok, %{content: "Updated task", hash: new_hash}
+    refute hash == new_hash
+    ref = push(channel, "context.write", %{"content" => "Stale task", "base_hash" => hash})
+    assert_reply ref, :error, %{reason: "conflict", content: "Updated task", hash: ^new_hash}
+    assert Threads.get(root.id).initial_context == "Updated task"
+    assert Threads.get(child.id).initial_context == "Updated task"
+  end
+
+  test "lobby stores shared context, returns it on join, and inherits it for new agents", %{dir: dir} do
+    {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
+    {:ok, _, lobby} = subscribe_and_join(socket, "lobby", %{})
+    context = "ENG-42\nhttps://notion.so/spec\nTask details"
+
+    ref = push(lobby, "thread.create", %{"provider" => "fake", "cwd" => dir, "initial_context" => context})
+    assert_reply ref, :ok, %{thread: %{id: id, initial_context: ^context}}
+    assert_push "thread.upserted", %{id: ^id, initial_context: ^context}
+
+    ref = push(lobby, "thread.create", %{"provider" => "codex", "parent_id" => id, "initial_context" => "override"})
+    assert_reply ref, :ok, %{thread: %{id: child_id, parent_id: ^id, initial_context: ^context}}
+    assert Items.last(child_id) == []
+
+    {:ok, snapshot, _} = subscribe_and_join(socket, "thread:" <> child_id, %{})
+    assert snapshot.thread.initial_context == context
+    assert snapshot.items == []
+
+    ref = push(lobby, "thread.create", %{"provider" => "fake", "cwd" => dir, "initial_context" => "  \n "})
+    assert_reply ref, :ok, %{thread: %{initial_context: nil}}
+  end
+
   @png "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 
   test "images: attached, stored, served, and echoed back by the agent", %{dir: dir} do

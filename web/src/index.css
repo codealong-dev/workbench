@@ -25,7 +25,7 @@
 .wb-prose hr { border-color: var(--border); }
 
 .wb-inline-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-code);
   font-size: 0.88em;
   padding: 0.1em 0.35em;
   border-radius: 5px;
@@ -33,7 +33,7 @@
 }
 
 .wb-code, .wb-code pre {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-code);
   font-size: 12.5px;
   line-height: 1.55;
   border-radius: 10px;
@@ -51,12 +51,12 @@
 }
 
 .wb-diff {
-  --diffs-font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --diffs-font-family: var(--font-code);
   --diffs-header-font-family: var(--font-sans);
 }
 
 .wb-tool-pre {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-code);
   font-size: 12px;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -119,6 +119,16 @@
   height: 100%;
   background: transparent !important;
 }
+/* The overlay scrollbar draws on top of the tabs; tabs still scroll with wheel/trackpad. */
+.dockview-theme-workbench .dv-scrollable .dv-scrollbar { display: none; }
 .dockview-theme-workbench .dv-tab:focus-within,
 .dockview-theme-workbench .dv-tab:focus { outline: none; }
 .dockview-theme-workbench .dv-watermark { background: var(--surface-2); }
+
+/* Code: VS Code's macOS look. Menlo first, and no grayscale smoothing (the app-wide
+   `antialiased` makes monospace text thin). Inherited into the diffs' shadow DOM. */
+:root { --font-code: Menlo, "SF Mono", SFMono-Regular, ui-monospace, Consolas, monospace; }
+.wb-diff, .wb-code, .wb-inline-code, .wb-tool-pre, .monaco-editor {
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+}

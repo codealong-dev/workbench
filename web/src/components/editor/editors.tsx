@@ -4,17 +4,18 @@ import { Columns2, ExternalLink, Rows2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { push } from "@/hooks/use-channels";
 import { fetchFile } from "@/hooks/use-files";
-import { editorKey, useEditors, type Saved } from "@/lib/editor-state";
+import { contextEditorKey, editorKey, useEditors, type Saved } from "@/lib/editor-state";
+import { useStore } from "@/store";
 import { monaco, themeFor } from "@/lib/monaco";
 import { useResolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { preferredEditor } from "@/components/app/open-menu";
-import { useWorkspace } from "@/components/workspace/buffers";
+import { useWorkspace, type Reveal } from "@/components/workspace/buffers";
 
 type Model = monaco.editor.ITextModel;
 
 const OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
-  fontFamily: 'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace',
+  fontFamily: 'Menlo, "SF Mono", SFMono-Regular, ui-monospace, Consolas, monospace',
   fontSize: 12.5,
   lineHeight: 20,
   minimap: { enabled: false },
@@ -41,9 +42,11 @@ function replaceText(model: Model, text: string) {
  * load, save (refused if the file changed meanwhile), reload when it changes
  * on disk (or flag a conflict when there are unsaved edits).
  */
-function useFileModel(path: string) {
+function useFileModel(path: string, source: "file" | "context" = "file") {
   const ws = useWorkspace();
-  const key = editorKey(ws.rootId, path);
+  const context = source === "context";
+  const key = context ? contextEditorKey(ws.rootId) : editorKey(ws.rootId, path);
+  const sharedContext = useStore((s) => context ? s.threads.find((t) => t.id === ws.rootId)?.initial_context : undefined);
   const { saved, dirty, conflict, setSaved, setDirty, setConflict } = useEditors();
   const [status, setStatus] = useState<"loading" | "ready" | "missing" | "binary" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
@@ -51,8 +54,12 @@ function useFileModel(path: string) {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
-    const r = await fetchFile(ws.channel.current, path);
-    const uri = fileUri(ws.rootId, path);
+    const r = context
+      ? await push(ws.channel.current, "context.get").then((r) => r.ok
+        ? { ok: true as const, file: { ...(r.payload as { content: string; hash: string }), binary: false, truncated: false } }
+        : { ok: false as const, error: r.reason })
+      : await fetchFile(ws.channel.current, path);
+    const uri = context ? monaco.Uri.from({ scheme: "wb-context", path: `/${ws.rootId}/initial-context.md` }) : fileUri(ws.rootId, path);
     if (!r.ok) {
       if (/does not exist/.test(r.error)) {
         setStatus("missing");
@@ -71,9 +78,9 @@ function useFileModel(path: string) {
     let m = monaco.editor.getModel(uri);
     const st = useEditors.getState();
     if (!m) {
-      m = monaco.editor.createModel(content, undefined, uri);
+      m = monaco.editor.createModel(content, context ? "markdown" : undefined, uri);
       st.setSaved(key, { content, hash: f.hash ?? null });
-    } else if (!st.dirty[key]) {
+    } else if (!st.dirty[key] || m.getValue() === content) {
       replaceText(m, content);
       st.setSaved(key, { content, hash: f.hash ?? null });
       st.setDirty(key, false);
@@ -82,12 +89,13 @@ function useFileModel(path: string) {
       st.setConflict(key, { content, hash: f.hash ?? null });
     }
     setModel(m);
+    setError(null);
     setStatus("ready");
-  }, [ws.channel, ws.rootId, path, key]);
+  }, [ws.channel, ws.rootId, path, key, context]);
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, sharedContext]);
 
   // track dirtiness against what's on disk
   useEffect(() => {
@@ -100,25 +108,28 @@ function useFileModel(path: string) {
   }, [model, key, setDirty]);
 
   // an agent, a terminal or another editor changed it
-  useEffect(() => ws.onFilesChanged((paths) => paths.includes(path) && void load()), [ws, path, load]);
+  useEffect(() => context ? undefined : ws.onFilesChanged((paths) => paths.includes(path) && void load()), [ws, path, load, context]);
 
   const write = useCallback(
     async (baseHash: string | null) => {
-      if (!model) return;
+      if (!model || saving) return;
       const content = model.getValue();
       setSaving(true);
-      const r = await push(ws.channel.current, "file.write", { path, content, base_hash: baseHash });
+      const r = await push(ws.channel.current, context ? "context.write" : "file.write", { ...(context ? {} : { path }), content, base_hash: baseHash });
       setSaving(false);
       if (r.ok) {
-        setSaved(key, { content, hash: (r.payload as { hash: string }).hash });
-        setDirty(key, false);
+        const savedContent = context ? (r.payload as { content: string }).content : content;
+        if (model.getValue() === content) replaceText(model, savedContent);
+        setSaved(key, { content: savedContent, hash: (r.payload as { hash: string }).hash });
+        setDirty(key, model.getValue() !== savedContent);
         setConflict(key, null);
+        setError(null);
       } else if (r.reason === "conflict") {
         const p = r.payload as { content: string | null; hash: string | null };
         setConflict(key, { content: p.content ?? "", hash: p.hash });
       } else setError(r.reason);
     },
-    [model, ws.channel, path, key, setSaved, setDirty, setConflict],
+    [model, saving, ws.channel, path, key, setSaved, setDirty, setConflict, context],
   );
 
   const save = useCallback(() => {
@@ -160,14 +171,14 @@ function PathLabel({ path }: { path: string }) {
   );
 }
 
-function ConflictBanner({ conflict, onReload, onOverwrite }: { conflict: Saved; onReload: () => void; onOverwrite: () => void }) {
+function ConflictBanner({ conflict, onReload, onOverwrite, context = false }: { conflict: Saved; onReload: () => void; onOverwrite: () => void; context?: boolean }) {
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-border bg-amber-500/10 px-3 py-1.5 text-[12px]">
       <span className="min-w-0 flex-1">
-        {conflict.hash ? "This file changed on disk (an agent or a terminal?) while you had unsaved edits." : "This file was deleted on disk."}
+        {context ? "The context changed in another window while you had unsaved edits." : conflict.hash ? "This file changed on disk (an agent or a terminal?) while you had unsaved edits." : "This file was deleted on disk."}
       </span>
       <Button size="compact" variant="secondary" onClick={onReload} disabled={!conflict.hash}>
-        Use disk version
+        {context ? "Use saved version" : "Use disk version"}
       </Button>
       <Button size="compact" variant="ghost" onClick={onOverwrite}>
         Keep mine and save
@@ -182,12 +193,57 @@ function useSaveKey(save: () => void) {
   return (ed: monaco.editor.IStandaloneCodeEditor) => ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => ref.current());
 }
 
+/** The workspace's shared context page, saved in Workbench rather than the worktree. */
+export function ContextEditor() {
+  const mode = useResolvedTheme();
+  const f = useFileModel("initial-context.md", "context");
+  const bindSave = useSaveKey(f.save);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <Bar>
+        <span className="min-w-0 flex-1 truncate">Initial context</span>
+        {f.dirty && <span className="text-muted-foreground">Unsaved</span>}
+        <button type="button" title="Save (⌘S)" aria-label="Save context" disabled={!f.dirty || f.saving} onClick={f.save} className="rounded p-1 text-muted-foreground hover:bg-hover hover:text-foreground disabled:opacity-40">
+          <Save className={cn("size-3.5", f.saving && "animate-pulse")} />
+        </button>
+      </Bar>
+      {f.conflict && <ConflictBanner context conflict={f.conflict} onReload={() => f.resolve.reload(f.conflict!)} onOverwrite={() => f.resolve.overwrite(f.conflict!)} />}
+      {f.error && <div role="alert" className="m-3 rounded-lg bg-destructive-light px-3 py-2 text-[12px] text-destructive">{f.error}</div>}
+      {f.status === "loading" && <div className="p-4 text-[12px] text-muted-foreground">Loading…</div>}
+      {f.model && (
+        <div className="min-h-0 flex-1">
+          <Editor
+            path={f.model.uri.toString()}
+            theme={themeFor(mode)}
+            keepCurrentModel
+            options={{ ...OPTIONS, wordWrap: "on", ariaLabel: "Initial context editor" }}
+            onMount={(editor) => { editor.setModel(f.model); bindSave(editor); editor.focus(); }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** A worktree file, editable. */
-export function FileEditor({ path }: { path: string }) {
+export function FileEditor({ path, reveal }: { path: string; reveal?: Reveal }) {
   const ws = useWorkspace();
   const mode = useResolvedTheme();
   const f = useFileModel(path);
   const bindSave = useSaveKey(f.save);
+  const [ed, setEd] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
+
+  // scroll to the lines an agent pointed at, and select them
+  useEffect(() => {
+    if (!ed || !reveal || !f.model) return;
+    const last = f.model.getLineCount();
+    const start = Math.min(reveal.line, last);
+    const end = Math.min(Math.max(reveal.end ?? start, start), last);
+    ed.setSelection(new monaco.Selection(start, 1, end, f.model.getLineMaxColumn(end)));
+    ed.revealLinesInCenter(start, end);
+    ed.focus();
+  }, [ed, reveal?.n, f.model]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -213,9 +269,10 @@ export function FileEditor({ path }: { path: string }) {
             theme={themeFor(mode)}
             keepCurrentModel
             options={OPTIONS}
-            onMount={(ed) => {
-              ed.setModel(f.model);
-              bindSave(ed);
+            onMount={(editor) => {
+              editor.setModel(f.model);
+              bindSave(editor);
+              setEd(editor);
             }}
           />
         </div>

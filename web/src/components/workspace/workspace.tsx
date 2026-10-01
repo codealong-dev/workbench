@@ -71,14 +71,20 @@ const rendererOf = (b: Buffer) => (b.kind === "terminal" ? "always" : "onlyWhenV
 export function WorkspaceView({
   rootId,
   selectedId,
+  selectedContext,
+  contextRequest,
   connected,
   onSelect,
+  onSelectContext,
   hidden = false,
 }: {
   rootId: string;
   selectedId: string;
+  selectedContext: boolean;
+  contextRequest: number;
   connected: boolean;
   onSelect: (id: string) => void;
+  onSelectContext: (id: string) => void;
   /** Kept mounted behind another page (settings): its keys are off. */
   hidden?: boolean;
 }) {
@@ -175,6 +181,7 @@ export function WorkspaceView({
       if (existing) {
         // opening it for keeps pins a preview
         if (!o.preview && (existing.params as { preview?: boolean }).preview) existing.api.updateParameters({ ...existing.params, preview: false });
+        if (b.kind === "file" && b.reveal) existing.api.updateParameters({ ...existing.params, reveal: b.reveal });
         if (!o.background) existing.api.setActive();
         return;
       }
@@ -203,6 +210,28 @@ export function WorkspaceView({
       });
     },
     [api, rootId],
+  );
+
+  // A file a chat mentions: beside the chat, in the group that already holds files if there is one.
+  const openFile = useCallback(
+    (path: string, lines?: { line: number; end?: number }) => {
+      const beside = api?.panels.find((p) => (p.params as Buffer).kind === "file" || (p.params as Buffer).kind === "diff");
+      open({ kind: "file", path, ...(lines ? { reveal: { ...lines, n: Date.now() } } : {}) }, beside ? { near: beside.id } : { direction: "right" });
+    },
+    [api, open],
+  );
+
+  const openFromReview = useCallback(
+    (path: string, line?: number) => {
+      if (!api) return;
+      const review = api.panels.find((p) => (p.params as Buffer).kind === "changes");
+      const x = (g: { element: HTMLElement }) => g.element.getBoundingClientRect().left;
+      const left = review ? api.groups.filter((g) => g !== review.group && x(g) < x(review.group)) : [];
+      const target = left.sort((a, b) => x(b) - x(a))[0] ?? review?.group;
+      const near = target?.activePanel ?? target?.panels[0];
+      open({ kind: "file", path, ...(line ? { reveal: { line, n: Date.now() } } : {}) }, near ? { near: near.id } : { direction: "right" });
+    },
+    [api, open],
   );
 
   const newChat = useCallback(
@@ -263,12 +292,13 @@ export function WorkspaceView({
   // -- dock lifecycle --------------------------------------------------------
   const onReady = (e: DockviewReadyEvent) => {
     const restored = applyLayout(e.api, initial ?? null);
-    if (!restored || !e.api.getPanel(bufferId({ kind: "chat", threadId: selectedId }))) {
+    const selectedBuffer: Buffer = selectedContext ? { kind: "context" } : { kind: "chat", threadId: selectedId };
+    if (!restored || !e.api.getPanel(bufferId(selectedBuffer))) {
       e.api.addPanel({
-        id: bufferId({ kind: "chat", threadId: selectedId }),
-        component: "chat",
+        id: bufferId(selectedBuffer),
+        component: selectedBuffer.kind,
         tabComponent: "buffer",
-        params: { kind: "chat", threadId: selectedId },
+        params: selectedBuffer,
       });
     }
     setApi(e.api);
@@ -285,16 +315,17 @@ export function WorkspaceView({
           setFocusedId(b.threadId);
           onSelect(b.threadId);
         }
+        if (b?.kind === "context") onSelectContext(rootId);
         if (b?.kind !== "changes") setActiveChange(null);
       }),
     ];
     return () => subs.forEach((s) => s.dispose());
-  }, [api, rootId, onSelect, channel]);
+  }, [api, rootId, onSelect, onSelectContext, channel]);
 
   // the sidebar picked a thread in this workspace
   useEffect(() => {
-    if (api && selectedId) open({ kind: "chat", threadId: selectedId });
-  }, [api, selectedId, open]);
+    if (api && selectedId) open(selectedContext ? { kind: "context" } : { kind: "chat", threadId: selectedId });
+  }, [api, selectedId, selectedContext, contextRequest, open]);
 
   // the changes buffer wants the full patch
   useEffect(() => {
@@ -372,7 +403,10 @@ export function WorkspaceView({
     version,
     focus,
     setActiveChange,
+    worktreePath: root?.worktree_path ?? "",
     open,
+    openFile,
+    openFromReview,
     openIn,
     loadPatch: (path) => fetchFilePatch(channel.current, path),
     newChat,
@@ -400,7 +434,7 @@ export function WorkspaceView({
                 components={PANEL_COMPONENTS}
                 tabComponents={{ buffer: BufferTab }}
                 defaultTabComponent={BufferTab}
-                rightHeaderActionsComponent={NewBufferMenu}
+                leftHeaderActionsComponent={NewBufferMenu}
                 onReady={onReady}
                 getTabContextMenuItems={tabMenu}
                 disableFloatingGroups

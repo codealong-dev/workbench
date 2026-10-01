@@ -85,6 +85,7 @@ defmodule Workbench.Provider.Codex do
       model: opts[:model],
       effort: opts[:effort],
       resume: opts[:resume],
+      initial_context: opts[:initial_context],
       initialized: false,
       models_wanted: false,
       thread_id: nil,
@@ -175,7 +176,11 @@ defmodule Workbench.Provider.Codex do
 
   defp thread_params(p) do
     {approval, sandbox, _} = mode_policy(p.mode)
-    base = %{"cwd" => p.cwd, "approvalPolicy" => approval, "sandbox" => sandbox}
+
+    base =
+      %{"cwd" => p.cwd, "approvalPolicy" => approval, "sandbox" => sandbox}
+      |> put_if("developerInstructions", p.initial_context)
+
     if p.model, do: Map.put(base, "model", p.model), else: base
   end
 

@@ -42,12 +42,14 @@ defmodule Workbench.Threads.Server do
       thread ->
         Process.flag(:trap_exit, true)
         Logger.metadata(thread_id: id)
+        Phoenix.PubSub.subscribe(Workbench.PubSub, Threads.context_topic(thread.parent_id || id))
 
         st = %{
           thread: thread,
           status: "idle",
           provider: Provider.module(thread.provider),
           pstate: nil,
+          provider_context: nil,
           # Monotonic across restarts so clients can drop duplicates by seq.
           seq: System.system_time(:microsecond),
           turn_id: nil,
@@ -170,6 +172,7 @@ defmodule Workbench.Threads.Server do
   end
 
   def handle_call({:set_mode, mode}, _from, st) do
+    st = refresh_context(st)
     if mode in Thread.modes() do
       thread = st.thread |> Ecto.Changeset.change(mode: mode) |> Repo.update!()
       st = %{st | thread: thread}
@@ -190,7 +193,7 @@ defmodule Workbench.Threads.Server do
   end
 
   def handle_call(:snapshot, _from, st) do
-    st = flush(st)
+    st = st |> refresh_context() |> flush()
 
     snap = %{
       thread: Thread.to_json(%{st.thread | status: st.status}),
@@ -202,6 +205,11 @@ defmodule Workbench.Threads.Server do
     }
 
     {:reply, snap, st}
+  end
+
+  def handle_call({:write_context, content, base_hash}, _from, st) do
+    result = Threads.persist_context(st.thread, content, base_hash)
+    {:reply, result, refresh_context(st)}
   end
 
   def handle_call(:archive, _from, st), do: {:reply, :ok, st, {:continue, :archive}}
@@ -237,6 +245,7 @@ defmodule Workbench.Threads.Server do
   end
 
   def handle_call({:set_model, model, effort}, _from, st) do
+    st = refresh_context(st)
     thread = st.thread |> Ecto.Changeset.change(model: model, effort: effort) |> Repo.update!()
     st = %{st | thread: thread}
 
@@ -261,6 +270,10 @@ defmodule Workbench.Threads.Server do
   # -- provider output ----------------------------------------------------------
 
   @impl true
+  def handle_info({:context_changed, context}, st) do
+    {:noreply, %{st | thread: %{st.thread | initial_context: context}}}
+  end
+
   def handle_info({:stdout, io, data}, %{pstate: %{io: io}} = st) do
     {lines, rest} = split_lines(st.line_buf <> data)
     st = Enum.reduce(lines, %{st | line_buf: rest}, &handle_line/2)
@@ -360,6 +373,7 @@ defmodule Workbench.Threads.Server do
   end
 
   defp emit(st, %{"type" => "session.started"} = ev) do
+    st = refresh_context(st)
     st =
       if ev["session_id"] && ev["session_id"] != st.thread.session_id do
         thread = st.thread |> Ecto.Changeset.change(session_id: ev["session_id"]) |> Repo.update!()
@@ -693,23 +707,35 @@ defmodule Workbench.Threads.Server do
     end
   end
 
-  defp ensure_provider(%{pstate: nil} = st) do
+  defp ensure_provider(st) do
+    st = refresh_context(st)
+    st = if st.pstate && st.provider_context != st.thread.initial_context && st.status not in @busy, do: close_provider(st), else: st
+    open_provider(st)
+  end
+
+  defp refresh_context(st) do
+    root = Threads.get(st.thread.parent_id || st.thread.id)
+    if root, do: %{st | thread: %{st.thread | initial_context: root.initial_context}}, else: st
+  end
+
+  defp open_provider(%{pstate: nil} = st) do
     opts = %{
       thread_id: st.thread.id,
       cwd: st.thread.worktree_path,
       resume: st.thread.session_id,
+      initial_context: st.thread.initial_context,
       mode: st.thread.mode,
       model: st.thread.model,
       effort: st.thread.effort
     }
 
     case st.provider.open(opts) do
-      {:ok, pstate} -> {:ok, %{st | pstate: pstate, line_buf: "", stderr: ""}}
+      {:ok, pstate} -> {:ok, %{st | pstate: pstate, provider_context: st.thread.initial_context, line_buf: "", stderr: ""}}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp ensure_provider(st), do: {:ok, st}
+  defp open_provider(st), do: {:ok, st}
 
   # -- project setup commands ---------------------------------------------------
 

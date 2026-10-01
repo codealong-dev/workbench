@@ -72,9 +72,10 @@ function Chunk(props: {
   viewed: Set<string>;
   onToggle: (path: string) => void;
   onOpenFile: (path: string) => void;
+  onOpenLine?: (path: string, line?: number) => void;
   setRef: (el: HTMLElement | null) => void;
 }) {
-  const { index, total, group, files, patches, diffStyle, viewed, onToggle, onOpenFile } = props;
+  const { index, total, group, files, patches, diffStyle, viewed, onToggle, onOpenFile, onOpenLine } = props;
   const cards = useRef<Record<string, HTMLDivElement | null>>({});
   const reveal = (path: string) => cards.current[path]?.scrollIntoView({ behavior: "smooth", block: "start" });
 
@@ -108,7 +109,7 @@ function Chunk(props: {
               )}
             >
               {blocks?.length ? (
-                blocks.map((b, i) => <DiffBlock key={i} file={b} diffStyle={diffStyle} onOpenFile={onOpenFile} />)
+                blocks.map((b, i) => <DiffBlock key={i} file={b} diffStyle={diffStyle} onOpenFile={onOpenFile} onOpenLine={onOpenLine} />)
               ) : (
                 <div className="px-3 py-2 text-[12px] text-muted-foreground">
                   <span className="font-mono">{f.path}</span>: {f.binary ? "binary file" : "loading…"}
@@ -147,9 +148,10 @@ export function GuideView(props: {
   patches: Patches;
   diffStyle: "split" | "unified";
   onOpenFile: (path: string) => void;
+  onOpenLine?: (path: string, line?: number) => void;
   onGenerate: () => void;
 }) {
-  const { diff, data, error, patches, diffStyle, onOpenFile, onGenerate } = props;
+  const { diff, data, error, patches, diffStyle, onOpenFile, onOpenLine, onGenerate } = props;
   const guide = data?.guide ?? null;
   const generating = data?.state.status === "generating";
   const failure = error ?? (data?.state.status === "error" ? data.state.message : null);
@@ -253,6 +255,7 @@ export function GuideView(props: {
                 viewed={viewed}
                 onToggle={toggle}
                 onOpenFile={onOpenFile}
+                onOpenLine={onOpenLine}
                 setRef={(el) => void (sections.current[i] = el)}
               />
             ))}

@@ -13,6 +13,7 @@ defmodule Workbench.OneShot do
 
     * `:id` - names the run (`thread_id` the provider sees)
     * `:cwd` - where the agent runs
+    * `:initial_context` - the workspace's shared context
     * `:timeout` - ms to wait for the answer
     * `:label` - for log lines
   """
@@ -29,6 +30,7 @@ defmodule Workbench.OneShot do
       thread_id: opts[:id],
       cwd: opts[:cwd],
       resume: nil,
+      initial_context: opts[:initial_context],
       mode: "plan",
       model: cfg["model"],
       effort: cfg["effort"]

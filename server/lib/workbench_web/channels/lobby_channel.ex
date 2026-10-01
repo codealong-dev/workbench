@@ -5,7 +5,7 @@ defmodule WorkbenchWeb.LobbyChannel do
     * join -> `{projects, threads}`
     * `project.add` `{path}` -> `{project}`
     * `project.branches` `{project_id}` -> `{branches, default}`
-    * `thread.create` `{project_id, provider, title?, base_ref?, mode?, model?, effort?, isolate?, prompt?}` -> `{thread}`
+    * `thread.create` `{project_id, provider, title?, initial_context?, base_ref?, mode?, model?, effort?, isolate?, prompt?}` -> `{thread}`
       (or `{cwd, ...}` without a project, as in M1; or `{parent_id, provider, ...}`
       for another session in an existing thread's worktree). With `prompt`, it
       is sent as the first message; if that fails the reply carries `send_error`.
@@ -64,6 +64,7 @@ defmodule WorkbenchWeb.LobbyChannel do
       %{
         provider: params["provider"] || "claude",
         title: blank(params["title"]),
+        initial_context: blank(params["initial_context"]),
         mode: params["mode"] || "default",
         model: blank(params["model"]),
         effort: blank(params["effort"])

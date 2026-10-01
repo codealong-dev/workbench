@@ -90,6 +90,21 @@ defmodule WorkbenchWeb.ThreadChannel do
   end
 
   # The worktree's files (tracked + untracked, not ignored), and one file's text.
+  def handle_in("context.get", _params, socket) do
+    case Threads.context(socket.assigns.thread_id) do
+      {:ok, context} -> {:reply, {:ok, context}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
+    end
+  end
+
+  def handle_in("context.write", %{"content" => content} = params, socket) when is_binary(content) do
+    case Threads.write_context(socket.assigns.thread_id, content, params["base_hash"]) do
+      {:ok, context} -> {:reply, {:ok, context}, socket}
+      {:error, {:conflict, now}} -> {:reply, {:error, Map.put(now, :reason, "conflict")}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
+    end
+  end
+
   def handle_in("files", _params, socket) do
     with_thread(socket, &Workbench.Files.list(&1.worktree_path))
   end

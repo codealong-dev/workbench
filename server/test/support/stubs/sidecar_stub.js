@@ -5,7 +5,7 @@ const out = (e) => process.stdout.write(JSON.stringify(e) + "\n");
 let n = 0;
 readline.createInterface({ input: process.stdin }).on("line", async (line) => {
   const op = JSON.parse(line);
-  if (op.op === "start") out({ type: "session.started", session_id: op.resume || "stub-session", model: "stub", cwd: process.cwd() });
+  if (op.op === "start") out({ type: "session.started", session_id: op.resume || "stub-session", model: "stub", cwd: process.cwd(), initial_context: op.initial_context });
   if (op.op === "send") {
     n++;
     if (op.text === "crash") { process.stderr.write("stub: boom\n"); process.exit(3); }

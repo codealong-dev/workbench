@@ -34,6 +34,8 @@ export interface Thread {
   parent_id: string | null;
   provider: Provider;
   title: string | null;
+  /** Shared context inherited by every agent session in this thread. */
+  initial_context: string | null;
   branch: string | null;
   base_ref: string | null;
   worktree_path: string;

@@ -21,7 +21,7 @@ import { toQuestions, withAnswers } from "./questions.ts";
 type Decision = "allow" | "allow_session" | "deny" | "answer";
 type Response = { decision: Decision; answers?: Record<string, string[]> };
 type Op =
-  | { op: "start"; cwd?: string; resume?: string | null; model?: string | null; effort?: EffortLevel | null; mode?: PermissionMode }
+  | { op: "start"; cwd?: string; resume?: string | null; initial_context?: string | null; model?: string | null; effort?: EffortLevel | null; mode?: PermissionMode }
   | { op: "set_model"; model?: string | null; effort?: EffortLevel | null }
   | { op: "models" }
   | { op: "usage" }
@@ -57,7 +57,7 @@ function start(op: Extract<Op, { op: "start" }>) {
       // The mode itself is still whatever the user picked.
       allowDangerouslySkipPermissions: true,
       ...(claudeBin ? { pathToClaudeCodeExecutable: claudeBin } : {}),
-      systemPrompt: { type: "preset", preset: "claude_code" },
+      systemPrompt: { type: "preset", preset: "claude_code", snapshot: false, ...(op.initial_context ? { append: op.initial_context } : {}) },
       settingSources: ["user", "project", "local"], // CLAUDE.md, skills, hooks, permissions
       includePartialMessages: true,
       stderr: (data) => process.stderr.write(data),

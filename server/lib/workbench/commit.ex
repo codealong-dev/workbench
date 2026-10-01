@@ -107,7 +107,7 @@ defmodule Workbench.Commit do
   def suggest(%Thread{worktree_path: wt} = t) do
     with :ok <- check_dir(wt),
          [_ | _] = files <- uncommitted(wt),
-         {:ok, text} <- OneShot.ask(config(t), prompt(wt, files), id: "commit-#{t.id}", cwd: wt, timeout: @timeout_ms, label: "commit"),
+         {:ok, text} <- OneShot.ask(config(t), prompt(wt, files), id: "commit-#{t.id}", cwd: wt, initial_context: t.initial_context, timeout: @timeout_ms, label: "commit"),
          {:ok, title} <- clean(text) do
       {:ok, title}
     else

@@ -14,7 +14,8 @@ import { useLobby } from "@/hooks/use-channels";
 import { useStore } from "@/store";
 import { hasToken } from "@/socket";
 
-const fromHash = () => location.hash.match(/^#\/t\/(.+)$/)?.[1] ?? null;
+const fromHash = () => location.hash.match(/^#\/t\/([^/]+)(?:\/context)?$/)?.[1] ?? null;
+const contextFromHash = () => /^#\/t\/[^/]+\/context$/.test(location.hash);
 // #/settings or #/settings/<section>; null when settings aren't open
 const settingsFromHash = (): SectionId | null => {
   const m = location.hash.match(/^#\/settings(?:\/([\w-]+))?$/);
@@ -31,6 +32,8 @@ const typing = (e: KeyboardEvent) => {
 export default function App() {
   const { connected } = useLobby();
   const [selected, setSelected] = useState<string | null>(fromHash);
+  const [selectedContext, setSelectedContext] = useState(contextFromHash);
+  const [contextRequest, setContextRequest] = useState(0);
   // Settings take over the sidebar and the main area; the thread stays
   // selected (and its workspace mounted, hidden) for when you come back.
   const [settings, setSettings] = useState<SectionId | null>(settingsFromHash);
@@ -42,6 +45,13 @@ export default function App() {
     const hash = id ? `#/t/${id}` : "";
     if (location.hash !== hash) location.hash = hash;
     setSelected(id);
+    setSelectedContext(false);
+  }, []);
+  const selectContext = useCallback((id: string) => {
+    const hash = `#/t/${id}/context`;
+    if (location.hash !== hash) location.hash = hash;
+    setSelected(id);
+    setSelectedContext(true);
   }, []);
   const current = threads.find((t) => t.id === selected);
   // a worktree is one workspace, whichever of its sessions is picked
@@ -51,14 +61,17 @@ export default function App() {
     location.hash = section ? `#/settings/${section}` : "#/settings";
   }, []);
   const closeSettings = useCallback(() => {
-    location.hash = selected ? `#/t/${selected}` : "";
-  }, [selected]);
+    location.hash = selected ? `#/t/${selected}${selectedContext ? "/context" : ""}` : "";
+  }, [selected, selectedContext]);
 
   useEffect(() => {
     const onHash = () => {
       const section = settingsFromHash();
       setSettings(section);
-      if (!section) setSelected(fromHash());
+      if (!section) {
+        setSelected(fromHash());
+        setSelectedContext(contextFromHash());
+      }
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -99,8 +112,10 @@ export default function App() {
         ) : (
           <AppSidebar
             selected={selected}
+            contextRoot={selectedContext ? rootId : null}
             connected={connected}
             onSelect={select}
+            onOpenContext={(id) => { selectContext(id); setContextRequest((n) => n + 1); }}
             onNewThread={(projectId) => setNewThread({ open: true, projectId })}
             onAddProject={() => setAddProject(true)}
             onSettings={() => openSettings()}
@@ -111,7 +126,7 @@ export default function App() {
           {settings && <SettingsView section={settings} />}
           {selected && rootId ? (
             <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", settings && "hidden")}>
-              <WorkspaceView key={rootId} rootId={rootId} selectedId={selected} connected={connected} onSelect={select} hidden={!!settings} />
+              <WorkspaceView key={rootId} rootId={rootId} selectedId={selected} selectedContext={selectedContext} contextRequest={contextRequest} connected={connected} onSelect={select} onSelectContext={selectContext} hidden={!!settings} />
             </div>
           ) : settings ? null : selected && !connected ? (
             <div className="flex-1" />
