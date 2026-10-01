@@ -23,4 +23,23 @@ defmodule Workbench.SettingsTest do
     assert {:error, _} = Settings.put("nope", 1)
     assert Settings.labs()["codex"]["enabled"]
   end
+
+  test "review: none until saved, saved whole, validated, can be forgotten" do
+    assert Settings.all()["review"] == nil
+
+    review = %{"provider" => "claude", "model" => "opus", "effort" => nil, "mode" => "plan", "prompt" => "  Look for bugs.  "}
+    Threads.subscribe_lobby()
+    assert {:ok, %{"review" => saved}} = Settings.put("review", review)
+    assert saved == %{review | "prompt" => "Look for bugs."}
+    assert_receive {:settings, %{"review" => ^saved}}
+
+    assert {:error, "review: pick an agent"} = Settings.put("review", %{review | "provider" => "gemini"})
+    assert {:error, "review: unknown permission mode"} = Settings.put("review", %{review | "mode" => "yolo"})
+    assert {:error, "review: write the prompt the reviewer gets"} = Settings.put("review", %{review | "prompt" => "  "})
+    assert {:error, "review: unknown field"} = Settings.put("review", Map.put(review, "x", 1))
+    assert Settings.review() == saved
+
+    assert {:ok, %{"review" => nil}} = Settings.put("review", nil)
+    assert Settings.review() == nil
+  end
 end

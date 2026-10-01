@@ -26,6 +26,7 @@ import { BufferTab, NewBufferMenu } from "./tabs";
 import { StatusBar } from "./status-bar";
 import { applyLayout, fetchLayout, saveLayout } from "./layout";
 import { editorKey, useEditors } from "@/lib/editor-state";
+import { reviewMessage } from "@/lib/review";
 
 const theme: DockviewTheme = {
   name: "workbench",
@@ -173,7 +174,8 @@ export function WorkspaceView({
         if (!o.background) existing.api.setActive();
         return;
       }
-      const group = api.activeGroup;
+      const near = o.near ? api.getPanel(o.near) : undefined;
+      const group = near?.group ?? api.activeGroup;
       const previewable = o.preview && (b.kind === "file" || b.kind === "diff");
       // a new preview takes the place of the old one (unless it has unsaved edits)
       let index: number | undefined;
@@ -214,6 +216,40 @@ export function WorkspaceView({
     },
     [rootId, root?.mode, open],
   );
+
+  // The review agent: a new session on this worktree, with the prompt from
+  // Settings → Review, in a panel at the right of the changes (or beside the
+  // review you already have open). Not set up yet: Settings first.
+  const startReview = useCallback(async (): Promise<string | null> => {
+    const cfg = useStore.getState().settings?.review;
+    if (!cfg) {
+      location.hash = "#/settings/review";
+      return null;
+    }
+    const r = await push(lobbyChannel(), "thread.create", {
+      parent_id: rootId,
+      provider: cfg.provider,
+      mode: cfg.mode,
+      model: cfg.model,
+      effort: cfg.effort,
+      title: "Review",
+      prompt: reviewMessage(cfg, diff),
+    });
+    if (!r.ok) return r.reason;
+    const { thread, send_error } = r.payload as { thread: Thread; send_error?: string };
+    // the reply beats the lobby's `thread.upserted`; selecting a thread the store doesn't know yet would unmount this workspace
+    useStore.getState().upsertThread(thread);
+    const earlier = api?.panels.find((p) => {
+      const b = p.params as Buffer;
+      return b.kind === "chat" && b.threadId !== thread.id && useStore.getState().threads.find((t) => t.id === b.threadId)?.title === "Review";
+    });
+    const chat: Buffer = { kind: "chat", threadId: thread.id };
+    open(chat, earlier ? { near: earlier.id } : { direction: "right" });
+    // selecting the new session may have opened its tab first, beside the changes
+    const panel = api?.getPanel(bufferId(chat));
+    if (panel && !earlier && panel.group.panels.length > 1) split(panel, "right");
+    return send_error ?? null;
+  }, [rootId, diff, api, open]);
 
   const newTerminal = useCallback(async () => {
     const t = await createTerminal();
@@ -332,6 +368,7 @@ export function WorkspaceView({
     openIn,
     loadPatch: (path) => fetchFilePatch(channel.current, path),
     newChat,
+    startReview,
     newTerminal,
     quickOpen: () => setQuickOpen(true),
     onFilesChanged,

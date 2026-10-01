@@ -1,10 +1,10 @@
-import { Boxes, Keyboard, Palette } from "lucide-react";
+import { Boxes, Keyboard, Palette, ScanSearch } from "lucide-react";
 import type { IconComponent } from "@/lib/icon-context";
 
 // Every settings page, grouped as the settings sidebar shows them. A new
 // page is one entry here plus its component in settings-view.tsx.
 
-export type SectionId = "appearance" | "models" | "shortcuts";
+export type SectionId = "appearance" | "models" | "review" | "shortcuts";
 
 export interface SettingsItem {
   id: SectionId;
@@ -16,7 +16,13 @@ export interface SettingsItem {
 
 export const SETTINGS_GROUPS: { title: string; items: SettingsItem[] }[] = [
   { title: "General", items: [{ id: "appearance", label: "Appearance", icon: Palette, keywords: "theme dark light system colors" }] },
-  { title: "Agents", items: [{ id: "models", label: "Models", icon: Boxes, keywords: "labs loadout anthropic openai claude codex gpt picker" }] },
+  {
+    title: "Agents",
+    items: [
+      { id: "models", label: "Models", icon: Boxes, keywords: "labs loadout anthropic openai claude codex gpt picker" },
+      { id: "review", label: "Review", icon: ScanSearch, keywords: "reviewer code review prompt agent changes diff second opinion" },
+    ],
+  },
   { title: "Workspace", items: [{ id: "shortcuts", label: "Keyboard shortcuts", icon: Keyboard, keywords: "keys hotkeys bindings" }] },
 ];
 

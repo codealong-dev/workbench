@@ -70,6 +70,9 @@ function streamEvent(st: NormalizeState, ev: Any): Event[] {
       const b = st.blocks.get(ev.index);
       if (!b) return [];
       const d = ev.delta;
+      // Some models omit their thinking and stream one empty delta. Forwarding it
+      // would open a live row that content_block_stop never closes (no text).
+      if (!d?.text && !d?.thinking) return [];
       if (d?.type === "text_delta" && b.kind === "text") {
         b.text += d.text;
         return [{ type: "text.delta", item_id: b.id, text: d.text }];

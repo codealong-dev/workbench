@@ -1,7 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileDiff } from "@pierre/diffs/react";
 import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, ScanSearch } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabItem, TabsList } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import type { DiffFile, DiffResult } from "@/contracts";
@@ -84,8 +85,19 @@ export function DiffView(props: {
   onActive?: (path: string | null) => void;
   onOpenFile: (path: string) => void;
   loadFile: (path: string) => Promise<string | null>;
+  /** Shows a Review button; resolves with an error message, or null. */
+  onReview?: () => Promise<string | null>;
 }) {
-  const { diff, error, focus, onActive, onOpenFile, loadFile } = props;
+  const { diff, error, focus, onActive, onOpenFile, loadFile, onReview } = props;
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const review = async () => {
+    if (!onReview || reviewing) return;
+    setReviewing(true);
+    setReviewError(null);
+    setReviewError(await onReview());
+    setReviewing(false);
+  };
   const [diffStyle, setDiffStyle] = useState<"split" | "unified">(() => (localStorage.getItem(LAYOUT_KEY) as "split") ?? "unified");
   const [lazy, setLazy] = useState<Record<string, FileDiffMetadata[]>>({});
   const refs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -170,6 +182,11 @@ export function DiffView(props: {
             <TabItem value="split" label="Split" />
           </TabsList>
         </Tabs>
+        {onReview && (
+          <Button size="compact" variant="ghost" leadingIcon={ScanSearch} disabled={reviewing || files.length === 0} onClick={() => void review()} title="Have a second agent review these changes">
+            Review
+          </Button>
+        )}
       </DiffHeader>
 
       <div
@@ -182,6 +199,7 @@ export function DiffView(props: {
         onKeyDown={takeOver}
       >
         {error && <div className="m-4 rounded-lg bg-destructive-light px-3 py-2 text-[12px] text-destructive">{error}</div>}
+        {reviewError && <div className="m-4 rounded-lg bg-destructive-light px-3 py-2 text-[12px] text-destructive">Couldn't start the review: {reviewError}</div>}
         {diff && files.length === 0 && !error && <div className="py-20 text-center text-[13px] text-muted-foreground">No changes yet.</div>}
         {diff?.truncated && <div className="px-4 pt-3 text-[12px] text-muted-foreground">This diff is large. Pick a file in Changes to load it.</div>}
 

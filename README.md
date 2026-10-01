@@ -63,6 +63,8 @@ Archiving a thread stops the agent, runs teardown and deletes the worktree; its 
 
 **Settings** (⌘, or the gear at the bottom of the sidebar) take over the sidebar with their own sections. **Models** turns labs on or off (Anthropic through Claude Code, OpenAI through Codex, the Fake agent); a lab that's off is hidden when you start a thread or a chat. For each lab you pick a loadout of up to three models, dragged into the order the picker shows them. To list a lab's models without a thread, Workbench starts its agent just to ask, then closes it (no turn, nothing spent). **Appearance** has the theme, **Keyboard shortcuts** the keys. Settings live on the server, so every browser shares them (the theme is per browser).
 
+**Review.** The Changes view has a **Review** button. It starts a second agent (a session on the same worktree, titled "Review") in a panel to the right of the changes, and sends it your review prompt plus which changes to look at (the base and the changed files). The first time, there is nothing to start yet, so it sends you to **Settings → Review**, where you pick the agent, its model, effort and permissions, and write the prompt (a default is filled in). It's saved on the server; after that the button just runs it. Each click is a fresh review session, and further ones open beside the one you already have open.
+
 **Sidebar keys:** `[` hides or shows the sidebar (hover the left edge to peek while hidden), ⌘K / Ctrl+K searches threads by title, branch, agent or project, `N` opens a new thread.
 
 ### Project config

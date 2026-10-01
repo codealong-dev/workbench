@@ -42,6 +42,19 @@ test("streamed text and thinking become deltas and completed items", () => {
   assert.equal(st.turnId, null);
 });
 
+test("empty thinking (omitted by the model) emits nothing", () => {
+  const st = initialState();
+  const msgs = [
+    se({ type: "message_start", message: { id: "msg_1" } }),
+    se({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "", signature: "" } }),
+    se({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "" } }),
+    se({ type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "sig" } }),
+    { type: "assistant", message: { id: "msg_1", content: [{ type: "thinking", thinking: "" }] }, parent_tool_use_id: null },
+    se({ type: "content_block_stop", index: 0 }),
+  ];
+  assert.deepEqual(msgs.flatMap((m) => normalize(st, m)), []);
+});
+
 test("non-streamed assistant text is still emitted", () => {
   const st = initialState();
   const ev = normalize(st, { type: "assistant", uuid: "u1", message: { id: "msg_2", content: [{ type: "text", text: "API error" }] }, parent_tool_use_id: null });

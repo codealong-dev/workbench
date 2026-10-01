@@ -220,6 +220,17 @@ defmodule WorkbenchWeb.ChannelsTest do
     Workbench.Models.forget("fake")
   end
 
+  test "lobby: a new session can start with its model, effort and first message", %{dir: dir} do
+    {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
+    {:ok, _, lobby} = subscribe_and_join(socket, "lobby", %{})
+
+    ref = push(lobby, "thread.create", %{"provider" => "fake", "cwd" => dir, "title" => "Review", "model" => "fake-fast", "effort" => "low", "mode" => "plan", "prompt" => "Review this."})
+    assert_reply ref, :ok, %{thread: %{id: id, model: "fake-fast", effort: "low", mode: "plan"}} = reply
+    refute Map.has_key?(reply, :send_error)
+
+    assert %{items: [%{"kind" => "user_message", "text" => "Review this."} | _]} = Threads.snapshot(id)
+  end
+
   test "joining an unknown thread fails" do
     {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
     assert {:error, %{reason: "not_found"}} = subscribe_and_join(socket, "thread:" <> Ecto.UUID.generate(), %{})

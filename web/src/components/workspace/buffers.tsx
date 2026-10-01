@@ -42,6 +42,8 @@ export interface OpenOptions {
   direction?: "right" | "below";
   /** leave focus where it is */
   background?: boolean;
+  /** open as a tab beside this panel's, in its group */
+  near?: string;
 }
 
 // ── what every buffer can reach ─────────────────────────────────────────────
@@ -70,6 +72,8 @@ export interface Workspace {
   openIn: (editor: Editor, path?: string) => Promise<string | null>;
   loadPatch: (path: string) => Promise<string | null>;
   newChat: (provider: "claude" | "codex") => Promise<void>;
+  /** Start the review agent on these changes in a panel at the right; resolves with an error message, or null. Sends you to Settings → Review first if it isn't set up. */
+  startReview: () => Promise<string | null>;
   newTerminal: () => Promise<void>;
   quickOpen: () => void;
   /** files that changed on disk (from the worktree watcher); returns an unsubscribe */
@@ -177,6 +181,7 @@ function ChangesPanel() {
         onActive={ws.setActiveChange}
         onOpenFile={(p) => void ws.openIn(preferredEditor(), p)}
         loadFile={ws.loadPatch}
+        onReview={ws.startReview}
       />
     </div>
   );

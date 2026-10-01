@@ -5,9 +5,10 @@ defmodule WorkbenchWeb.LobbyChannel do
     * join -> `{projects, threads}`
     * `project.add` `{path}` -> `{project}`
     * `project.branches` `{project_id}` -> `{branches, default}`
-    * `thread.create` `{project_id, provider, title?, base_ref?, mode?, isolate?}` -> `{thread}`
+    * `thread.create` `{project_id, provider, title?, base_ref?, mode?, model?, effort?, isolate?, prompt?}` -> `{thread}`
       (or `{cwd, ...}` without a project, as in M1; or `{parent_id, provider, ...}`
-      for another session in an existing thread's worktree)
+      for another session in an existing thread's worktree). With `prompt`, it
+      is sent as the first message; if that fails the reply carries `send_error`.
     * `thread.archive` `{id}` -> ok (same as the thread channel's `archive`)
     * `settings.put` `{key, value}` -> `{settings}` (see Workbench.Settings)
     * `models.list` `{provider, refresh?}` -> `{models}`; may start the agent
@@ -64,7 +65,8 @@ defmodule WorkbenchWeb.LobbyChannel do
         provider: params["provider"] || "claude",
         title: blank(params["title"]),
         mode: params["mode"] || "default",
-        model: blank(params["model"])
+        model: blank(params["model"]),
+        effort: blank(params["effort"])
       }
       |> then(fn a ->
         case {blank(params["parent_id"]), blank(params["project_id"])} do
@@ -84,7 +86,19 @@ defmodule WorkbenchWeb.LobbyChannel do
       end)
 
     case Threads.create(attrs) do
-      {:ok, thread} -> {:reply, {:ok, %{thread: Thread.to_json(thread)}}, socket}
+      {:ok, thread} ->
+        reply = %{thread: Thread.to_json(thread)}
+
+        reply =
+          with prompt when is_binary(prompt) <- blank(params["prompt"]),
+               {:error, reason} <- Threads.send_message(thread.id, prompt) do
+            Map.put(reply, :send_error, H.reason(reason))
+          else
+            _ -> reply
+          end
+
+        {:reply, {:ok, reply}, socket}
+
       {:error, %Ecto.Changeset{} = cs} -> {:reply, {:error, %{reason: H.errors(cs)}}, socket}
       {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
     end

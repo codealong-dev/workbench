@@ -200,9 +200,22 @@ export interface LabSettings {
   models: string[];
 }
 
+/** The agent that reviews a thread's changes, as set up in Settings → Review. */
+export interface ReviewSettings {
+  provider: Provider;
+  /** null = the agent's default model */
+  model: string | null;
+  /** null = the model's default effort */
+  effort: string | null;
+  mode: Mode;
+  prompt: string;
+}
+
 /** App-wide preferences (Workbench.Settings), shared by every browser. */
 export interface Settings {
   labs: Record<Provider, LabSettings>;
+  /** null until the review agent is set up */
+  review: ReviewSettings | null;
 }
 
 export const MAX_LOADOUT = 3;
