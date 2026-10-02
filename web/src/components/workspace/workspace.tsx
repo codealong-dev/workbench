@@ -30,6 +30,31 @@ import { applyLayout, fetchLayout, saveLayout } from "./layout";
 import { editorKey, useEditors } from "@/lib/editor-state";
 import { reviewMessage } from "@/lib/review";
 
+// The macOS app's window (desktop/main.swift) says so in its user agent. Native HTML5 drag-and-drop is
+// unreliable in an embedded WKWebView, so panels and tabs are dragged with pointer events there.
+const IN_MAC_APP = navigator.userAgent.includes("WorkbenchApp");
+
+// Pointer drags are plain mouse drags, so the browser also selects the text under the cursor. The native
+// path suppresses that on its own. While a mouse is down on a tab or a group's header, switch selection off.
+if (IN_MAC_APP) {
+  const root = document.documentElement;
+  const end = () => root.classList.remove("wb-dragging");
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (e.button === 0 && e.target instanceof Element && e.target.closest(".dv-tabs-and-actions-container")) {
+        root.classList.add("wb-dragging");
+        window.getSelection()?.removeAllRanges();
+      }
+    },
+    true,
+  );
+  document.addEventListener("selectstart", (e) => root.classList.contains("wb-dragging") && e.preventDefault(), true);
+  window.addEventListener("pointerup", end, true);
+  window.addEventListener("pointercancel", end, true);
+  window.addEventListener("blur", end);
+}
+
 const theme: DockviewTheme = {
   name: "workbench",
   className: "dockview-theme-workbench",
@@ -438,6 +463,7 @@ export function WorkspaceView({
                 onReady={onReady}
                 getTabContextMenuItems={tabMenu}
                 disableFloatingGroups
+                dndStrategy={IN_MAC_APP ? "pointer" : "auto"}
               />
             )}
           </div>

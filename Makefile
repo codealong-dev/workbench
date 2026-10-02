@@ -1,4 +1,4 @@
-.PHONY: setup dev fake web sidecar test build clean spikes install uninstall restart stop logs link
+.PHONY: setup dev fake web sidecar test build clean spikes install uninstall app dist restart stop logs link
 
 # First time: fetch deps, create the DB, build the sidecar.
 setup:
@@ -34,7 +34,7 @@ spikes:
 	./spikes/01-claude-sdk.sh
 
 clean:
-	rm -rf server/_build server/priv/static sidecar/dist web/dist
+	rm -rf server/_build server/priv/static sidecar/dist web/dist desktop/build dist
 
 # macOS: build a release and run it at login via launchd (scripts/macos).
 install:
@@ -42,6 +42,14 @@ install:
 
 uninstall:
 	./scripts/macos/uninstall.sh
+
+# macOS: Workbench.app in ~/Applications, a native window on the server from `make install`.
+app:
+	./scripts/macos/build-app.sh
+
+# macOS: dist/Workbench-<version>-<arch>.dmg with the server inside, for the website (see scripts/macos/package.sh).
+dist:
+	./scripts/macos/package.sh
 
 restart:
 	launchctl kickstart -k gui/$$(id -u)/dev.workbench.server

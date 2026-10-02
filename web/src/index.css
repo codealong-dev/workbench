@@ -124,6 +124,9 @@
 .dockview-theme-workbench .dv-tab:focus-within,
 .dockview-theme-workbench .dv-tab:focus { outline: none; }
 .dockview-theme-workbench .dv-watermark { background: var(--surface-2); }
+/* set by workspace.tsx while a tab or group is dragged with the mouse in the Mac app */
+html.wb-dragging, html.wb-dragging body { -webkit-user-select: none; user-select: none; cursor: grabbing; }
+html.wb-dragging .dv-drop-target-container, html.wb-dragging .dv-drop-target { --dv-transition-duration: 80ms; }
 
 /* Code: VS Code's macOS look. Menlo first, and no grayscale smoothing (the app-wide
    `antialiased` makes monospace text thin). Inherited into the diffs' shadow DOM. */

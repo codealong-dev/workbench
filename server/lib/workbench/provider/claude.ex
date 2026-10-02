@@ -14,35 +14,55 @@ defmodule Workbench.Provider.Claude do
     sidecar = Application.fetch_env!(:workbench, :sidecar_path)
     node = System.get_env("WB_NODE") || System.find_executable("node")
 
-    cond do
-      is_nil(node) ->
-        {:error, "node not found on PATH"}
+    case claude_env() do
+      {:error, _} = err ->
+        err
 
-      not File.exists?(sidecar) ->
-        {:error, "sidecar not built: #{sidecar} (run `make sidecar`)"}
+      {:ok, env} ->
+        cond do
+          is_nil(node) -> {:error, "node not found on PATH"}
+          not File.exists?(sidecar) -> {:error, "sidecar not built: #{sidecar} (run `make sidecar`)"}
+          true -> start(node, sidecar, env, opts)
+        end
+    end
+  end
+
+  # By default the SDK runs its own pinned Claude Code binary (same login as
+  # your terminal). Set WB_CLAUDE_BIN to use another one. The macOS app ships
+  # without that binary (WB_CLAUDE_FROM_PATH=1) and uses the `claude` you
+  # installed instead.
+  defp claude_env do
+    cond do
+      bin = System.get_env("WB_CLAUDE_BIN") ->
+        {:ok, [{"WB_CLAUDE_BIN", bin}]}
+
+      System.get_env("WB_CLAUDE_FROM_PATH") in ~w(1 true) ->
+        case System.find_executable("claude") do
+          nil ->
+            {:error, "claude not found on PATH. Install Claude Code (https://claude.com/product/claude-code), run `claude` once to log in, then try again."}
+
+          bin ->
+            {:ok, [{"WB_CLAUDE_BIN", bin}]}
+        end
 
       true ->
-        # By default the SDK runs its own pinned Claude Code binary (same
-        # login as your terminal). Set WB_CLAUDE_BIN to use another one.
-        env =
-          case System.get_env("WB_CLAUDE_BIN") do
-            nil -> []
-            bin -> [{"WB_CLAUDE_BIN", bin}]
-          end
+        {:ok, []}
+    end
+  end
 
-        with {:ok, %{io: io} = proc} <- Proc.start([node, sidecar], opts.cwd, env) do
-          Proc.write_json(io, %{
-            op: "start",
-            cwd: opts.cwd,
-            resume: opts[:resume],
-            initial_context: opts[:initial_context],
-            model: opts[:model],
-            effort: opts[:effort],
-            mode: opts.mode
-          })
+  defp start(node, sidecar, env, opts) do
+    with {:ok, %{io: io} = proc} <- Proc.start([node, sidecar], opts.cwd, env) do
+      Proc.write_json(io, %{
+        op: "start",
+        cwd: opts.cwd,
+        resume: opts[:resume],
+        initial_context: opts[:initial_context],
+        model: opts[:model],
+        effort: opts[:effort],
+        mode: opts.mode
+      })
 
-          {:ok, proc}
-        end
+      {:ok, proc}
     end
   end
 

@@ -15,7 +15,7 @@ A local-first workbench for running coding agents in parallel. A Phoenix app run
 | M3 control | Mostly done in M1 (approvals, stop, modes); tool rendering by name is in |
 | M4 persistence | Mostly done in M1; "Load earlier" paging is left |
 | M5 review | Done: changes panel (diff vs base, split/unified, untracked files), Open in Zed / VS Code / Cursor / Finder |
-| M6 macOS app | Done: login-shell PATH, `make install` (release + launchd agent at login), Dock web app |
+| M6 macOS app | Done: login-shell PATH, `make install` (release + launchd agent at login), `make app` (native Workbench.app window), `make dist` (self-contained, signed `.dmg` for a website) |
 | M7 remote machine | Done: `WB_BIND`/`WB_ORIGINS`, one-time login link for other machines, SSH "Open in", Push + Open PR. See [docs/remote.md](docs/remote.md) |
 | M8 several machines | Next: one UI, threads on several nodes over Tailscale |
 | M9 Codex | Done: `codex app-server` over JSON-RPC from Elixir; streaming, approvals (commands, file patches, permissions), interrupt, resume, modes |
@@ -92,7 +92,17 @@ Commands run with `sh -c` inside the worktree, with `WB_REPO` and `WB_WORKTREE` 
 make install     # release + launchd agent: starts at login, restarts on crash
 ```
 
-Then in Safari open http://127.0.0.1:4242 and choose **File > Add to Dock** for a standalone window with its own Dock icon. `make logs`, `make restart`, `make stop` and `make uninstall` manage it; data stays in `~/.workbench`. After pulling new code, run `make install` again.
+Then build the app window:
+
+```bash
+make app         # Workbench.app in ~/Applications
+```
+
+It is a small native shell (`desktop/main.swift`, a `WKWebView`; needs the Xcode command line tools) around the server above, with its own Dock icon and menu bar, so browser shortcuts don't get in the way. It starts the launchd agent if the server isn't running; closing the window quits the app and leaves the server up. Links to other sites open in your browser. `PORT=4100 make app` if you installed the server on another port. It is only ad-hoc signed, so it runs on the Mac that built it; run `make app` again after changing `desktop/`.
+
+To hand the app to other people (the server, Node and the UI all inside one `.dmg`, no `make install` needed), see [docs/distribution.md](docs/distribution.md): `make dist`, with your Developer ID to sign and notarize it.
+
+Without the app, Safari's **File > Add to Dock** on http://127.0.0.1:4242 gives a standalone window too. `make logs`, `make restart`, `make stop` and `make uninstall` manage it; data stays in `~/.workbench`. After pulling new code, run `make install` again.
 
 Launched outside a terminal, Workbench reads `PATH` from your login shell at boot, so Homebrew/asdf tools (`git`, `node`, `zed`) are found.
 

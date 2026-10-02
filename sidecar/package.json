@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "esbuild src/claude.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/claude.js --packages=external",
+    "build:dist": "esbuild src/claude.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/claude.bundle.js --banner:js=\"import{createRequire as __cr}from'module';const require=__cr(import.meta.url);\"",
     "typecheck": "tsc --noEmit",
     "test": "node --test --experimental-strip-types test/*.test.ts"
   },

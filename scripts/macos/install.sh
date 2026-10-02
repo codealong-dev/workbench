@@ -47,7 +47,7 @@ cat <<MSG
 Workbench runs at login now (logs: $wb_home/logs/workbench.log).
 ${WB_BIND:+Other machines: open the link from \`make link\` once in their browser.}
 
-Dock app: in Safari, open http://127.0.0.1:$port and choose File > Add to Dock.
-(Chrome: ⋮ > Cast, save and share > Install page as app.)
+Native app: make app   (Workbench.app in ~/Applications)
+Or in Safari, open http://127.0.0.1:$port and choose File > Add to Dock.
 MSG
 open "http://127.0.0.1:$port"

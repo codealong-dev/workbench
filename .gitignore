@@ -13,4 +13,10 @@ node_modules/
 /web/dist/
 *.tsbuildinfo
 
+# macOS app
+/desktop/build/
+
 .DS_Store
+
+# distributable app
+/dist/
