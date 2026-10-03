@@ -12,7 +12,8 @@ import { cn } from "@/lib/utils";
 export interface Row {
   key: string;
   depth: number;
-  kind: "dir" | "file" | "label";
+  /** match: a line found by a search (`path` its file, `line` its number) */
+  kind: "dir" | "file" | "label" | "match";
   name: ReactNode;
   /** dir: its path (the expand key); file: its path */
   path: string;
@@ -25,6 +26,7 @@ export interface Row {
   /** right-aligned, on hover only */
   actions?: ReactNode;
   title?: string;
+  line?: number;
 }
 
 const INDENT = 12;
@@ -50,7 +52,7 @@ const RowView = memo(function RowView(props: {
       aria-expanded={row.kind === "dir" ? !!row.open : undefined}
       aria-selected={selected}
       tabIndex={-1}
-      title={row.title ?? (row.kind === "label" ? undefined : row.path)}
+      title={row.title ?? (row.kind === "label" || row.kind === "match" ? undefined : row.path)}
       onClick={() => onActivate(row)}
       onDoubleClick={() => onDoubleActivate?.(row)}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onActivate(row))}
@@ -58,6 +60,7 @@ const RowView = memo(function RowView(props: {
         "group/row relative flex h-7 cursor-pointer items-center gap-1.5 rounded-md pr-1.5 text-[13px] outline-none select-none",
         selected && "bg-active before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-foreground",
         row.kind === "label" && "text-muted-foreground",
+        row.kind === "match" && "font-mono text-[12px] text-muted-foreground",
       )}
       style={{ paddingLeft: 6 + row.depth * INDENT }}
     >
@@ -72,7 +75,7 @@ const RowView = memo(function RowView(props: {
       ) : (
         <span className="w-3.5 shrink-0" />
       )}
-      {row.kind !== "label" && <Icon size={15} strokeWidth={1.5} className={cn("shrink-0", iconClass)} />}
+      {row.kind !== "label" && row.kind !== "match" && <Icon size={15} strokeWidth={1.5} className={cn("shrink-0", iconClass)} />}
       <span className={cn("min-w-0 flex-1 truncate", row.nameClass)}>{row.name}</span>
       {row.actions && <span className="hidden shrink-0 items-center gap-0.5 group-hover/row:flex">{row.actions}</span>}
       {row.meta && <span className="flex shrink-0 items-center gap-1.5">{row.meta}</span>}

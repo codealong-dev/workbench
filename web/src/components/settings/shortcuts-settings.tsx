@@ -16,6 +16,8 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
     keys: [
       ["Show or hide the files and changes panel", "]"],
       ["Open a file", "⌘P"],
+      ["Find in files, with a preview", "⌘⇧F"],
+      ["Search file contents in the files panel", "⌥⌘F"],
       ["Split the current tab to the right", "⌘\\"],
       ["Close the current tab", "Ctrl W"],
       ["Save the file", "⌘S"],

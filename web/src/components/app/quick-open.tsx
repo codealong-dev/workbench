@@ -8,7 +8,7 @@ import type { FileList } from "@/contracts";
 const SHOWN = 50;
 
 /** Highlight the matched characters of `text`, whose first character sits at `offset` in the full path. */
-function Marked({ text, offset, hits }: { text: string; offset: number; hits: Set<number> }) {
+export function Marked({ text, offset, hits }: { text: string; offset: number; hits: Set<number> }) {
   const parts: ReactNode[] = [];
   let run = "";
   let marked = false;

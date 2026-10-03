@@ -101,6 +101,10 @@ export interface Workspace {
 }
 
 export const WorkspaceContext = createContext<Workspace | null>(null);
+
+/** What links in chat messages need. Kept apart from the workspace, which changes
+ * on every diff, file list or thread update and would re-render every message. */
+export const FileLinksContext = createContext<Pick<Workspace, "worktreePath" | "openFile"> | null>(null);
 export const useWorkspace = () => {
   const ws = useContext(WorkspaceContext);
   if (!ws) throw new Error("useWorkspace outside a workspace");

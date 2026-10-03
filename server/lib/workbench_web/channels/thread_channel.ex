@@ -113,6 +113,30 @@ defmodule WorkbenchWeb.ThreadChannel do
     with_thread(socket, &Workbench.Files.read(&1.worktree_path, path))
   end
 
+  # Find in files: `{query, case_sensitive?, whole_word?, regex?, include?, exclude?}`
+  # -> {files: [{path, matches: [{line, col, text, ranges}]}], total, truncated}.
+  # A search can take a while, so it runs aside and replies when done.
+  def handle_in("search", %{"query" => query} = params, socket) when is_binary(query) do
+    case Threads.get(socket.assigns.thread_id) do
+      nil ->
+        {:reply, {:error, %{reason: "not_found"}}, socket}
+
+      thread ->
+        ref = socket_ref(socket)
+        opts = Map.take(params, ~w(case_sensitive whole_word regex include exclude))
+
+        {:ok, _} =
+          Task.Supervisor.start_child(Workbench.TaskSupervisor, fn ->
+            case Workbench.Search.search(thread.worktree_path, query, opts) do
+              {:ok, result} -> reply(ref, {:ok, result})
+              {:error, reason} -> reply(ref, {:error, %{reason: H.reason(reason)}})
+            end
+          end)
+
+        {:noreply, socket}
+    end
+  end
+
   # Save from the editor. `base_hash` (from `file`) refuses the write if the
   # file changed meanwhile: error `{reason: "conflict", content, hash}`.
   def handle_in("file.write", %{"path" => path, "content" => content} = params, socket) when is_binary(path) and is_binary(content) do

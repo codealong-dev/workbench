@@ -1,7 +1,7 @@
 import { memo, useContext, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { WorkspaceContext } from "@/components/workspace/buffers";
+import { FileLinksContext } from "@/components/workspace/buffers";
 import { parseFileLink } from "@/lib/file-links";
 
 // Shiki is loaded on first use; highlighted HTML is cached per (lang, code).
@@ -45,7 +45,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
 /** Markdown for completed messages. `streaming` skips highlighting until the block is final. */
 export const Markdown = memo(function Markdown({ text, streaming = false }: { text: string; streaming?: boolean }) {
   // inside a workspace, links to files open in the app instead of going nowhere
-  const ws = useContext(WorkspaceContext);
+  const ws = useContext(FileLinksContext);
   return (
     <div className="wb-prose">
       <ReactMarkdown

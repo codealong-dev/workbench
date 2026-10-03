@@ -269,6 +269,34 @@ export interface FileContent {
   hash?: string | null;
 }
 
+/** Find in files (`search`). include/exclude: comma separated globs. */
+export interface SearchOptions {
+  case_sensitive: boolean;
+  whole_word: boolean;
+  regex: boolean;
+  include: string;
+  exclude: string;
+}
+
+export interface SearchMatch {
+  line: number;
+  /** 1-based, of the first match on the line (UTF-16 units, as Monaco counts) */
+  col: number;
+  /** the line, or a window of it when long (`cut_left`/`cut_right`) */
+  text: string;
+  /** [start, end) into `text` */
+  ranges: [number, number][];
+  cut_left: boolean;
+  cut_right: boolean;
+}
+
+export interface SearchResult {
+  files: { path: string; matches: SearchMatch[] }[];
+  total: number;
+  /** stopped early: too many matches, or it took too long */
+  truncated: boolean;
+}
+
 export interface TerminalInfo {
   id: string;
   owner_id: string;

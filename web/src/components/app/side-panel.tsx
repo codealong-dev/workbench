@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type RefObject } from "react";
+import type { Channel } from "phoenix";
 import {
   ArrowUpFromLine,
   ChevronRight,
@@ -7,13 +8,13 @@ import {
   Files,
   GitCompareArrows,
   GitPullRequest,
-  List,
-  ListTree,
   Minus,
   MoveRight,
   Plus,
   RefreshCw,
+  ListFilter,
   Search,
+  TextSearch,
   X,
 } from "lucide-react";
 import { motion } from "framer-motion";
@@ -23,7 +24,12 @@ import { ResizeHandle } from "@/components/ui/resize-handle";
 import { useResizableWidth } from "@/hooks/use-resizable-width";
 import { spring } from "@/lib/springs";
 import { cn } from "@/lib/utils";
-import type { DiffFile, DiffResult, FileList, FileStatus, PushResult } from "@/contracts";
+import type { DiffFile, DiffResult, FileList, FileStatus, PushResult, SearchOptions } from "@/contracts";
+import { useContentSearch } from "@/hooks/use-search";
+import { fileIcon } from "@/lib/file-icons";
+import { searchPaths } from "@/lib/fuzzy";
+import { GlobFields, MatchText, SearchField, summarize } from "./search-ui";
+import { Marked } from "./quick-open";
 import { ancestors, buildTree, flattenTree, TreeRows, type Row } from "./file-tree";
 import { Counts } from "./diff-view";
 import { PANEL } from "./panel";
@@ -83,6 +89,17 @@ const splitPath = (p: string) => {
 
 // ── Files tab ───────────────────────────────────────────────────────────────
 
+/** The Files tab's filter, or (⌥⌘F) find in files. Kept by the workspace so it outlives the tab. */
+export interface FileSearch {
+  mode: "filter" | "search";
+  query: string;
+  options: SearchOptions;
+  /** the include/exclude fields are shown */
+  globs: boolean;
+}
+
+const NAME_MATCHES = 8;
+
 function FilesTab(props: {
   list: FileList | null;
   error: string | null;
@@ -91,13 +108,25 @@ function FilesTab(props: {
   changes: Map<string, DiffFile>;
   selected: string | null;
   onOpen: (path: string, pin?: boolean) => void;
+  onOpenAt: (path: string, line: number, pin?: boolean) => void;
   onOpenInEditor: (path: string) => void;
+  search: FileSearch;
+  onSearch: (s: FileSearch) => void;
+  channel: RefObject<Channel | null>;
 }) {
-  const { list, error, loading, onRefresh, changes, selected, onOpen, onOpenInEditor } = props;
+  const { list, error, loading, onRefresh, changes, selected, onOpen, onOpenAt, onOpenInEditor, search, onSearch } = props;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [query, setQuery] = useState("");
+  // result files folded away (find in files)
+  const [folded, setFolded] = useState<Set<string>>(new Set());
+  const [again, setAgain] = useState(0);
+  const query = search.query;
+  const setQuery = (q: string) => onSearch({ ...search, query: q });
+  const searching = search.mode === "search";
   const paths = useMemo(() => list?.files ?? [], [list]);
   const tree = useMemo(() => buildTree(paths), [paths]);
+  // searches again when files change on disk (the list is refetched then) or on refresh
+  const refreshKey = useMemo(() => ({}), [again, list]); // eslint-disable-line react-hooks/exhaustive-deps
+  const found = useContentSearch(props.channel, searching ? query : "", search.options, refreshKey);
 
   // reveal the file open in the viewer
   useEffect(() => {
@@ -135,6 +164,75 @@ function FilesTab(props: {
 
   const q = query.trim().toLowerCase();
   const rows: Row[] = useMemo(() => {
+    if (searching) {
+      if (!query.trim()) return [];
+      const out: Row[] = [];
+      // file names first, fuzzily, as ⌘P does
+      const named = search.options.regex ? [] : searchPaths(paths, query, NAME_MATCHES);
+      if (named.length) {
+        out.push({ key: "h:files", depth: 0, kind: "label", path: "", name: <span className="text-[11px] font-medium tracking-wide uppercase">Files</span> });
+        for (const m of named) {
+          const cut = m.path.lastIndexOf("/") + 1;
+          const hits = new Set(m.hits);
+          out.push(
+            decorate({
+              key: "n:" + m.path,
+              depth: 0,
+              kind: "file",
+              path: m.path,
+              name: (
+                <>
+                  <Marked text={m.path.slice(cut)} offset={cut} hits={hits} />
+                  {cut > 0 && (
+                    <span className="ml-1.5 text-[11px] text-muted-foreground">
+                      <Marked text={m.path.slice(0, cut - 1)} offset={0} hits={hits} />
+                    </span>
+                  )}
+                </>
+              ),
+            }),
+          );
+        }
+      }
+      const r = found.result;
+      if (r) {
+        out.push({
+          key: "h:results",
+          depth: 0,
+          kind: "label",
+          path: "",
+          name: <span className="text-[11px]">{r.total ? summarize(r.total, r.files.length, r.truncated) : "No results in file contents"}</span>,
+        });
+        for (const f of r.files) {
+          const { dir, name } = splitPath(f.path);
+          const fi = fileIcon(f.path);
+          const open = !folded.has(f.path);
+          out.push({
+            key: "r:" + f.path,
+            depth: 0,
+            kind: "dir",
+            open,
+            path: f.path,
+            icon: fi.icon,
+            iconClass: fi.className,
+            title: f.path,
+            nameClass: changes.has(f.path) ? STATUS[changes.get(f.path)!.status].text : undefined,
+            name: (
+              <>
+                {name}
+                {dir && <span className="ml-1.5 text-[11px] text-muted-foreground">{dir}</span>}
+              </>
+            ),
+            meta: <span className="rounded-full bg-muted px-1.5 text-[11px] text-muted-foreground tabular-nums">{f.matches.length}</span>,
+          });
+          if (open)
+            f.matches.forEach((m, i) =>
+              out.push({ key: `m:${f.path}:${m.line}:${i}`, depth: 1, kind: "match", path: f.path, line: m.line, title: `${f.path}:${m.line}`, name: <MatchText match={m} /> }),
+            );
+        }
+      }
+      return out;
+    }
     if (!q) return flattenTree(tree, expanded, decorate);
     return paths
       .filter((p) => p.toLowerCase().includes(q))
@@ -154,38 +252,100 @@ function FilesTab(props: {
           ),
         });
       });
-  }, [q, tree, expanded, paths, changes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [q, query, searching, search.options.regex, found.result, folded, tree, expanded, paths, changes]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fieldKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape") {
+      if (query) setQuery("");
+      else if (searching) onSearch({ ...search, mode: "filter" });
+    }
+    // Enter: the first result
+    if (e.key === "Enter" && searching) {
+      const first = rows.find((r) => r.kind === "match" || r.kind === "file");
+      if (first?.kind === "match") onOpenAt(first.path, first.line!);
+      else if (first) onOpen(first.path);
+    }
+  };
 
   return (
     <>
       <Toolbar>
-        <div className="group/search relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input
+        {searching ? (
+          <SearchField
+            className="flex-1"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Escape" && setQuery("")}
-            placeholder="Filter files…"
-            aria-label="Filter files"
-            className="h-7 w-full rounded-md bg-transparent pr-2 pl-7 text-[12px] ring-1 ring-transparent outline-none placeholder:text-muted-foreground hover:bg-muted/50 hover:ring-border focus:bg-card focus:ring-border"
+            onChange={setQuery}
+            options={search.options}
+            onOptions={(options) => onSearch({ ...search, options })}
+            placeholder="Search files and contents…"
+            onKeyDown={fieldKey}
+            error={!!found.error}
+            inputRef={(el) => el?.setAttribute("data-file-search", "")}
+            icon={<TextSearch className="ml-2 size-3.5 shrink-0 text-muted-foreground" />}
           />
-        </div>
-        <IconButton label="Collapse folders" onClick={() => setExpanded(new Set())}>
-          <ChevronsDownUp />
+        ) : (
+          <div className="group/search relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={fieldKey}
+              placeholder="Filter files…"
+              aria-label="Filter files"
+              className="h-7 w-full rounded-md bg-transparent pr-2 pl-7 text-[12px] ring-1 ring-transparent outline-none placeholder:text-muted-foreground hover:bg-muted/50 hover:ring-border focus:bg-card focus:ring-border"
+            />
+          </div>
+        )}
+        <IconButton label={searching ? "Filter file names (⌥⌘F)" : "Search in file contents (⌥⌘F)"} active={searching} onClick={() => onSearch({ ...search, mode: searching ? "filter" : "search" })}>
+          <TextSearch />
         </IconButton>
-        <IconButton label="Refresh" onClick={onRefresh}>
-          <RefreshCw className={cn(loading && "animate-spin")} />
-        </IconButton>
+        {searching ? (
+          <>
+            <IconButton label="Files to include or exclude" active={search.globs} onClick={() => onSearch({ ...search, globs: !search.globs })}>
+              <ListFilter />
+            </IconButton>
+            <IconButton label="Collapse results" onClick={() => setFolded(new Set(found.result?.files.map((f) => f.path) ?? []))}>
+              <ChevronsDownUp />
+            </IconButton>
+            <IconButton label="Search again" onClick={() => setAgain((n) => n + 1)}>
+              <RefreshCw className={cn(found.loading && "animate-spin")} />
+            </IconButton>
+          </>
+        ) : (
+          <>
+            <IconButton label="Collapse folders" onClick={() => setExpanded(new Set())}>
+              <ChevronsDownUp />
+            </IconButton>
+            <IconButton label="Refresh" onClick={onRefresh}>
+              <RefreshCw className={cn(loading && "animate-spin")} />
+            </IconButton>
+          </>
+        )}
       </Toolbar>
+      {searching && search.globs && <GlobFields className="px-2 pb-2" options={search.options} onOptions={(options) => onSearch({ ...search, options })} />}
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
         {error && <div className="m-2 rounded-lg bg-destructive-light px-3 py-2 text-[12px] text-destructive">{error}</div>}
+        {searching && found.error && <div className="m-2 rounded-lg bg-destructive-light px-3 py-2 text-[12px] whitespace-pre-wrap text-destructive">{found.error}</div>}
         {!list && !error && <div className="px-2 py-3 text-[12px] text-muted-foreground">Loading…</div>}
-        {list && rows.length === 0 && <div className="px-2 py-3 text-[12px] text-muted-foreground">{q ? "No matching files" : "No files"}</div>}
+        {searching && !query.trim() && (
+          <div className="px-2 py-3 text-[12px] leading-relaxed text-muted-foreground">
+            Searches file names and what's in them. ⌥⌘C match case, ⌥⌘W whole word, ⌥⌘R regular expression; ⌘⇧F opens it with a preview.
+          </div>
+        )}
+        {list && !searching && rows.length === 0 && <div className="px-2 py-3 text-[12px] text-muted-foreground">{q ? "No matching files" : "No files"}</div>}
         <TreeRows
-          label="Files"
+          label={searching ? "Search results" : "Files"}
           rows={rows}
           selected={selected}
           onActivate={(row) => {
+            if (row.kind === "match") return onOpenAt(row.path, row.line!);
+            if (row.kind === "dir" && searching)
+              return setFolded((f) => {
+                const n = new Set(f);
+                if (n.has(row.path)) n.delete(row.path);
+                else n.add(row.path);
+                return n;
+              });
             if (row.kind === "dir")
               setExpanded((e) => {
                 const n = new Set(e);
@@ -193,11 +353,11 @@ function FilesTab(props: {
                 else n.add(row.path);
                 return n;
               });
-            else onOpen(row.path);
+            else if (row.kind === "file") onOpen(row.path);
           }}
-          onDoubleActivate={(row) => row.kind === "file" && onOpen(row.path, true)}
+          onDoubleActivate={(row) => (row.kind === "file" ? onOpen(row.path, true) : row.kind === "match" ? onOpenAt(row.path, row.line!, true) : undefined)}
         />
-        {list?.truncated && <div className="px-2 py-2 text-[11px] text-muted-foreground">Showing the first {list.files.length.toLocaleString()} files.</div>}
+        {list?.truncated && !searching && <div className="px-2 py-2 text-[11px] text-muted-foreground">Showing the first {list.files.length.toLocaleString()} files.</div>}
       </div>
     </>
   );
@@ -216,7 +376,6 @@ function ChangesTab(props: {
   onPush: () => Promise<PushOutcome>;
 }) {
   const { diff, error, loading, onRefresh, selected, onOpen, onOpenInEditor, onPush } = props;
-  const [asTree, setAsTree] = useState(() => localStorage.getItem("wb.changesTree") === "1");
   const [open, setOpen] = useState(true);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [pushing, setPushing] = useState(false);
@@ -258,33 +417,12 @@ function ChangesTab(props: {
 
   const rows = useMemo(() => {
     if (!open) return [];
-    if (asTree) {
-      const dirs = new Set(files.flatMap((f) => ancestors(f.path)));
-      const expanded = new Set([...dirs].filter((d) => !collapsed.has(d)));
-      return flattenTree(buildTree(files.map((f) => f.path)), expanded, (row) =>
-        row.kind === "file" ? fileRow(byPath.get(row.path)!, row.depth, row.name) : row,
-      );
-    }
-    // grouped by folder, like `git status`
-    const groups = new Map<string, DiffFile[]>();
-    for (const f of files) {
-      const { dir } = splitPath(f.path);
-      groups.set(dir, [...(groups.get(dir) ?? []), f]);
-    }
-    return [...groups.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .flatMap(([dir, fs]): Row[] => [
-        {
-          key: "g:" + dir,
-          depth: 0,
-          kind: "label",
-          path: dir,
-          name: <span className="font-mono text-[12px]">{dir || "/"}</span>,
-          meta: <span className="text-[11px] text-muted-foreground tabular-nums">{fs.length}</span>,
-        },
-        ...fs.map((f) => fileRow(f, 0, splitPath(f.path).name)),
-      ]);
-  }, [files, asTree, open, collapsed, byPath]); // eslint-disable-line react-hooks/exhaustive-deps
+    const dirs = new Set(files.flatMap((f) => ancestors(f.path)));
+    const expanded = new Set([...dirs].filter((d) => !collapsed.has(d)));
+    return flattenTree(buildTree(files.map((f) => f.path)), expanded, (row) =>
+      row.kind === "file" ? fileRow(byPath.get(row.path)!, row.depth, row.name) : row,
+    );
+  }, [files, open, collapsed, byPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
@@ -298,15 +436,6 @@ function ChangesTab(props: {
             "Loading…"
           )}
         </div>
-        <IconButton
-          label={asTree ? "Group by folder" : "Show as tree"}
-          onClick={() => {
-            setAsTree(!asTree);
-            localStorage.setItem("wb.changesTree", asTree ? "0" : "1");
-          }}
-        >
-          {asTree ? <List /> : <ListTree />}
-        </IconButton>
         <IconButton label={pushing ? "Pushing…" : "Push branch (git push -u origin)"} onClick={async () => {
           if (pushing) return;
           setPushing(true);
@@ -394,7 +523,12 @@ export function SidePanel(props: {
   openFile: string | null;
   focusedChange: string | null;
   onOpenFile: (path: string, pin?: boolean) => void;
+  /** a search result: the file, at that line */
+  onOpenFileAt: (path: string, line: number, pin?: boolean) => void;
   onOpenChange: (path: string, pin?: boolean) => void;
+  search: FileSearch;
+  onSearch: (s: FileSearch) => void;
+  channel: RefObject<Channel | null>;
   onOpenInEditor: (path: string) => void;
   onPush: () => Promise<PushOutcome>;
 }) {
@@ -402,16 +536,17 @@ export function SidePanel(props: {
   const { width, dragging, onMouseDown } = useResizableWidth("wb.panelWidth", 300, 220, 560, "left");
   const changes = useMemo(() => new Map((diff?.files ?? []).map((f) => [f.path, f])), [diff]);
   const count = diff?.files.length ?? 0;
-  const iconOnly = width < 340;
+  // the tabs fill the bar; below this their labels no longer fit beside the icons
+  const iconOnly = width < 280;
 
   return (
     <aside className={cn("relative flex min-h-0 shrink-0 flex-col", PANEL, "overflow-visible")} style={{ width }} aria-label="Files and changes">
       <ResizeHandle onMouseDown={onMouseDown} dragging={dragging} side="left" />
       <div className="flex shrink-0 items-center border-b border-border px-2 py-1.5">
-        <Tabs value={tab} onValueChange={(v) => onTab(v as PanelTab)} size="compact">
-          <TabsList>
-            <TabItem value="files" icon={Files} label="Files" iconOnly={iconOnly} />
-            <TabItem value="changes" icon={GitCompareArrows} label={iconOnly && count ? `Changes, ${count} file${count === 1 ? "" : "s"}` : "Changes"} badge={count || undefined} iconOnly={iconOnly} />
+        <Tabs value={tab} onValueChange={(v) => onTab(v as PanelTab)} size="compact" className="w-full">
+          <TabsList className="flex w-full">
+            <TabItem value="files" icon={Files} label="Files" iconOnly={iconOnly} className="min-w-0 flex-1 justify-center" />
+            <TabItem value="changes" icon={GitCompareArrows} label={iconOnly && count ? `Changes, ${count} file${count === 1 ? "" : "s"}` : "Changes"} badge={count || undefined} iconOnly={iconOnly} className="min-w-0 flex-1 justify-center" />
           </TabsList>
         </Tabs>
       </div>
@@ -424,7 +559,11 @@ export function SidePanel(props: {
           changes={changes}
           selected={props.openFile}
           onOpen={props.onOpenFile}
+          onOpenAt={props.onOpenFileAt}
           onOpenInEditor={props.onOpenInEditor}
+          search={props.search}
+          onSearch={props.onSearch}
+          channel={props.channel}
         />
       ) : (
         <ChangesTab

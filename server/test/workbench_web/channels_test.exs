@@ -204,6 +204,12 @@ defmodule WorkbenchWeb.ChannelsTest do
     ref = push(chan, "file", %{"path" => "../x"})
     assert_reply ref, :error, %{reason: "path is outside the worktree"}
 
+    # find in files replies once the search is done
+    ref = push(chan, "search", %{"query" => "HI"})
+    assert_reply ref, :ok, %{files: [%{path: "x.md", matches: [%{line: 1, ranges: [[2, 4]]}]}], total: 1}
+    ref = push(chan, "search", %{"query" => "(", "regex" => true})
+    assert_reply ref, :error, %{reason: "Invalid regular expression" <> _}
+
     # save from the editor; a stale base is a conflict carrying what's on disk
     ref = push(chan, "file", %{"path" => "x.md"})
     assert_reply ref, :ok, %{hash: h1}

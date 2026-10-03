@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Brain, ChevronRight, CircleAlert } from "lucide-react";
 import { ChatMessage } from "@/components/ui/chat-message";
 import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
@@ -52,7 +52,9 @@ function TurnFooter({ item }: { item: TurnItem }) {
 
 const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
-function Row({ item, live }: { item: Item | LiveItem; live: boolean }) {
+// Items keep their identity until they change, so typing in the composer or a
+// streamed delta re-renders only the rows that moved.
+const Row = memo(function Row({ item, live }: { item: Item | LiveItem; live: boolean }) {
   switch (item.kind) {
     case "user_message": {
       const { quotes, body } = splitQuotes(item.text);
@@ -92,7 +94,7 @@ function Row({ item, live }: { item: Item | LiveItem; live: boolean }) {
         </div>
       );
   }
-}
+});
 
 export function Timeline(props: {
   items: Item[];

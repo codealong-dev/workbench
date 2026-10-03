@@ -136,6 +136,10 @@ html.wb-dragging .dv-drop-target-container, html.wb-dragging .dv-drop-target { -
   -moz-osx-font-smoothing: auto;
 }
 
+/* Find in files preview (search-preview.tsx): every match, and the line picked. */
+.monaco-editor .wb-find-match { background: rgb(234 179 8 / 0.35); border-radius: 2px; }
+.monaco-editor .wb-find-line { background: rgb(107 151 255 / 0.14); }
+
 /* Changed-line bars in the file editor's gutter (editors.tsx), as VS Code draws them. */
 .monaco-editor .wb-gutter-added,
 .monaco-editor .wb-gutter-modified { margin-left: 3px; width: 3px !important; }

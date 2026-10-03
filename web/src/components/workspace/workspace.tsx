@@ -18,12 +18,14 @@ import { cn } from "@/lib/utils";
 import { useStore } from "@/store";
 import type { Editor, PushResult, Thread } from "@/contracts";
 import { CommitDialog } from "@/components/app/commit-dialog";
-import { SidePanel, type PanelTab } from "@/components/app/side-panel";
+import { SidePanel, type FileSearch, type PanelTab } from "@/components/app/side-panel";
+import { FindDialog } from "@/components/app/find-dialog";
+import { NO_OPTIONS } from "@/hooks/use-search";
 import { QuickOpen } from "@/components/app/quick-open";
 import { isAppShortcut } from "@/components/app/terminal-view";
 import { preferredEditor } from "@/components/app/open-menu";
 import { PANEL_GAP } from "@/components/app/panel";
-import { PANEL_COMPONENTS, WorkspaceContext, bufferId, type Buffer, type OpenOptions, type Workspace as Ws } from "./buffers";
+import { FileLinksContext, PANEL_COMPONENTS, WorkspaceContext, bufferId, type Buffer, type OpenOptions, type Workspace as Ws } from "./buffers";
 import { BufferTab, NewBufferMenu } from "./tabs";
 import { StatusBar } from "./status-bar";
 import { applyLayout, fetchLayout, saveLayout } from "./layout";
@@ -58,7 +60,7 @@ if (IN_MAC_APP) {
 const theme: DockviewTheme = {
   name: "workbench",
   className: "dockview-theme-workbench",
-  gap: 5,
+  gap: 6.5,
 };
 
 const PANEL_KEY = "wb.panel";
@@ -160,8 +162,12 @@ export function WorkspaceView({
   const { diff, error: diffError, loading: diffLoading, refresh: refreshDiff } = useDiff(channel, root ? (busy ? "running" : "idle") : undefined, hasChanges);
   const guide = useGuide(channel, !!root, diff);
   const [quickOpen, setQuickOpen] = useState(false);
+  // ⌘⇧F, seeded with the text selected when it opened
+  const [find, setFind] = useState<{ open: boolean; seed: string }>({ open: false, seed: "" });
+  // the Files tab's filter, or find in files there (⌥⌘F)
+  const [fileSearch, setFileSearch] = useState<FileSearch>({ mode: "filter", query: "", options: NO_OPTIONS, globs: false });
   const [commitOpen, setCommitOpen] = useState(false);
-  const files = useFiles(channel, root ? (busy ? "running" : "idle") : undefined, panel === "files" || quickOpen);
+  const files = useFiles(channel, root ? (busy ? "running" : "idle") : undefined, panel === "files" || quickOpen || find.open);
   const { terminals, create: createTerminal } = useTerminals(channel, true);
   const [version, setVersion] = useState(0);
   const wasBusy = useRef(busy);
@@ -429,6 +435,26 @@ export function WorkspaceView({
         e.preventDefault();
         setQuickOpen(true);
       }
+      // ⌘⇧F find in files, with a preview; ⌥⌘F the same in the Files tab
+      // (by e.code: Shift and Option change e.key)
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.code === "KeyF") {
+        e.preventDefault();
+        const selected = window.getSelection()?.toString().trim() ?? "";
+        setFind({ open: true, seed: selected.includes("\n") || selected.length > 200 ? "" : selected });
+      }
+      if ((e.metaKey || e.ctrlKey) && e.altKey && !e.shiftKey && e.code === "KeyF") {
+        e.preventDefault();
+        setPanel("files");
+        setFileSearch((s) => ({ ...s, mode: "search" }));
+        // once the tab has rendered its search field
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            const input = document.querySelector<HTMLInputElement>("input[data-file-search]");
+            input?.focus();
+            input?.select();
+          }),
+        );
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -466,6 +492,9 @@ export function WorkspaceView({
     onFilesChanged,
   };
 
+  const worktreePath = root?.worktree_path ?? "";
+  const fileLinks = useMemo(() => ({ worktreePath, openFile }), [worktreePath, openFile]);
+
   if (joinError) return <div className="grid flex-1 place-items-center text-[13px] text-destructive">Could not open thread: {joinError}</div>;
 
   const openFiles = (api?.panels ?? []).flatMap((p) => ((p.params as Buffer).kind === "file" ? [(p.params as Buffer & { kind: "file" }).path] : []));
@@ -473,6 +502,7 @@ export function WorkspaceView({
 
   return (
     <WorkspaceContext.Provider value={ws}>
+      <FileLinksContext.Provider value={fileLinks}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className={cn("flex min-h-0 flex-1", PANEL_GAP)}>
           <div className="relative min-w-[340px] flex-1">
@@ -503,6 +533,10 @@ export function WorkspaceView({
               openFile={activeBuffer?.kind === "file" ? activeBuffer.path : null}
               focusedChange={activeBuffer?.kind === "diff" ? activeBuffer.path : activeBuffer?.kind === "changes" ? (activeChange ?? focus?.path ?? null) : null}
               onOpenFile={(path, pin) => open({ kind: "file", path }, { preview: !pin })}
+              onOpenFileAt={(path, line, pin) => open({ kind: "file", path, reveal: { line, n: Date.now() } }, { preview: !pin })}
+              search={fileSearch}
+              onSearch={setFileSearch}
+              channel={channel}
               onOpenChange={(path, pin) => {
                 const from = diff?.files.find((f) => f.path === path)?.old_path ?? undefined;
                 open({ kind: "diff", path, ...(from ? { from } : {}) }, { preview: !pin });
@@ -532,8 +566,17 @@ export function WorkspaceView({
           />
         )}
         {root && <CommitDialog thread={root} channel={channel} open={commitOpen} onOpenChange={setCommitOpen} onChanged={() => void refreshDiff()} />}
+        <FindDialog
+          open={find.open}
+          onOpenChange={(o) => setFind((f) => ({ ...f, open: o }))}
+          channel={channel}
+          files={files}
+          seed={find.seed}
+          onPick={(path, line) => open({ kind: "file", path, ...(line ? { reveal: { line, n: Date.now() } } : {}) })}
+        />
         <QuickOpen open={quickOpen} onOpenChange={setQuickOpen} files={files} recent={openFiles} onPick={(path) => open({ kind: "file", path })} />
       </div>
+      </FileLinksContext.Provider>
     </WorkspaceContext.Provider>
   );
 }
