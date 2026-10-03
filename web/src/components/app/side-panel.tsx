@@ -4,8 +4,8 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ExternalLink,
-  FileDiff as FileDiffIcon,
   Files,
+  GitCompareArrows,
   GitPullRequest,
   List,
   ListTree,
@@ -411,7 +411,7 @@ export function SidePanel(props: {
         <Tabs value={tab} onValueChange={(v) => onTab(v as PanelTab)} size="compact">
           <TabsList>
             <TabItem value="files" icon={Files} label="Files" iconOnly={iconOnly} />
-            <TabItem value="changes" icon={FileDiffIcon} label={count ? `Changes ${count}` : "Changes"} iconOnly={iconOnly} />
+            <TabItem value="changes" icon={GitCompareArrows} label={iconOnly && count ? `Changes, ${count} file${count === 1 ? "" : "s"}` : "Changes"} badge={count || undefined} iconOnly={iconOnly} />
           </TabsList>
         </Tabs>
       </div>

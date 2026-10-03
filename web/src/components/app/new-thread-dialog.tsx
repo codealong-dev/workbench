@@ -18,6 +18,8 @@ export function NewThreadDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectId?: string | null;
+  /** Preselect this agent (⌘T); otherwise the last one picked. */
+  provider?: Provider;
   onCreated: (t: Thread) => void;
   onAddProject: () => void;
 }) {
@@ -47,7 +49,10 @@ export function NewThreadDialog(props: {
     const pick = props.projectId ?? (projects.some((p) => p.id === last) ? last : projects[0]?.id) ?? "";
     setProjectId(pick);
     // the agent picked last time may have been turned off in settings
-    setProvider((p) => (labs.some((l) => l.id === p) ? p : (labs[0]?.id ?? "claude")));
+    setProvider((p) => {
+      const want = props.provider ?? p;
+      return labs.some((l) => l.id === want) ? want : (labs[0]?.id ?? "claude");
+    });
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Branches for the base-branch picker.

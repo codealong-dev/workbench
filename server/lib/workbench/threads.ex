@@ -104,6 +104,9 @@ defmodule Workbench.Threads do
   nest one level; a child of a child hangs off the root. Every session
   inherits the root's initial context.
 
+  With `start_ref` too, the thread's branch starts there rather than at
+  `base_ref` (see `Workbench.PullRequests`).
+
   Without a project, `worktree_path` must be an existing directory (M1 mode).
   """
   def create(%{parent_id: parent_id} = attrs) when is_binary(parent_id) do
@@ -174,9 +177,9 @@ defmodule Workbench.Threads do
   end
 
   defp place(project, attrs) do
-    slug = Worktrees.slug(attrs[:title])
+    slug = Worktrees.slug(attrs[:slug] || attrs[:title])
 
-    with {:ok, wt} <- Worktrees.create(project, slug, blank_to_nil(attrs[:base_ref])) do
+    with {:ok, wt} <- Worktrees.create(project, slug, blank_to_nil(attrs[:base_ref]), attrs[:start_ref]) do
       {:ok, Map.put(wt, :isolated, true)}
     end
   end

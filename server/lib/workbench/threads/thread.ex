@@ -22,6 +22,9 @@ defmodule Workbench.Threads.Thread do
     field :model, :string
     field :effort, :string
     field :status, :string, default: "idle"
+    # set on a workspace opened to review a GitHub pull request
+    field :pr_number, :integer
+    field :pr_url, :string
     field :archived_at, :utc_datetime_usec
     # user messages sent, filled in by `Threads.list/0`
     field :message_count, :integer, virtual: true
@@ -44,7 +47,9 @@ defmodule Workbench.Threads.Thread do
       :worktree_path,
       :mode,
       :model,
-      :effort
+      :effort,
+      :pr_number,
+      :pr_url
     ])
     |> validate_required([:provider, :worktree_path])
     |> validate_inclusion(:provider, @providers)
@@ -73,6 +78,8 @@ defmodule Workbench.Threads.Thread do
       :model,
       :effort,
       :status,
+      :pr_number,
+      :pr_url,
       :message_count,
       :archived_at,
       :inserted_at,

@@ -28,14 +28,18 @@ defmodule Workbench.Worktrees do
     if base == "", do: "thread-" <> suffix, else: base <> "-" <> suffix
   end
 
-  @doc "Create `wb/<slug>` from `base_ref` and check it out in a new worktree."
-  def create(%Project{} = p, slug, base_ref) do
+  @doc """
+  Create `wb/<slug>` from `base_ref` and check it out in a new worktree.
+  With `start`, the branch starts there instead (a pull request's head) and
+  `base_ref` is only what its changes are compared against.
+  """
+  def create(%Project{} = p, slug, base_ref, start \\ nil) do
     path = Path.join(root(p), slug)
     branch = "wb/" <> slug
     base = base_ref || p.default_branch
     File.mkdir_p!(root(p))
 
-    case Git.run(p.repo_path, ["worktree", "add", "-b", branch, path, base]) do
+    case Git.run(p.repo_path, ["worktree", "add", "-b", branch, path, start || base]) do
       {:ok, _} -> {:ok, %{path: path, branch: branch, base_ref: base}}
       {:error, msg} -> {:error, msg}
     end

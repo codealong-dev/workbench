@@ -161,9 +161,11 @@ export function DiffView(props: {
   onPush?: () => void;
   /** Shows the Guide tab: the changes grouped by a model. */
   guide?: { data: GuideData | null; generate: () => Promise<string | null>; cancel: () => void };
+  /** Which tab shows first (a pull request's workspace opens on its guide). */
+  initialView?: "changes" | "guide";
 }) {
   const { diff, error, focus, onActive, onOpenFile, onOpenLine, loadFile, onReview, onPush, guide } = props;
-  const [view, setView] = useState<"changes" | "guide">("changes");
+  const [view, setView] = useState<"changes" | "guide">(guide ? (props.initialView ?? "changes") : "changes");
   const [guideError, setGuideError] = useState<string | null>(null);
   const generating = guide?.data?.state.status === "generating";
   const generate = async () => {

@@ -12,6 +12,7 @@ import {
   cloneElement,
   isValidElement,
   type ComponentPropsWithoutRef,
+  type ReactNode,
 } from "react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { motion, AnimatePresence } from "framer-motion";
@@ -421,12 +422,14 @@ interface TabItemProps
   label: string;
   /** Hide the text, keeping it as the accessible name and tooltip. */
   iconOnly?: boolean;
+  /** Trailing count, shown even when iconOnly. */
+  badge?: ReactNode;
   /** @internal Auto-assigned by TabsList. */
   _index?: number;
 }
 
 const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
-  ({ value, icon: Icon, label, iconOnly, _index = 0, className, onClick, ...props }, ref) => {
+  ({ value, icon: Icon, label, iconOnly, badge, _index = 0, className, onClick, ...props }, ref) => {
     const internalRef = useRef<HTMLButtonElement>(null);
     const sizeClasses = useSize();
     const { registerTab, hoveredIndex, selectedValue, setOptimisticIdx } = useTabsList();
@@ -504,6 +507,16 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
             {label}
           </span>
         </span>
+        {badge != null && (
+          <span
+            className={cn(
+              "flex h-4 min-w-4 items-center justify-center rounded-full bg-hover px-1 text-[10px] tabular-nums transition-colors duration-80",
+              isActive ? "text-foreground" : "text-muted-foreground"
+            )}
+          >
+            {badge}
+          </span>
+        )}
       </TabsPrimitive.Trigger>
     );
   }

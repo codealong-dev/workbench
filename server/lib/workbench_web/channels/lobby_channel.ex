@@ -13,12 +13,16 @@ defmodule WorkbenchWeb.LobbyChannel do
     * `settings.put` `{key, value}` -> `{settings}` (see Workbench.Settings)
     * `models.list` `{provider, refresh?}` -> `{models}`; may start the agent
       just to ask, so the reply can take a few seconds
+    * `prs.list` `{state?, project_id?, author?, review?}` -> `{prs, errors}`; asks
+      GitHub through `gh`, so it can take a few seconds (see Workbench.PullRequests)
+    * `pr.review` `{project_id, number, provider?}` -> `{thread}`: the workspace
+      reviewing that pull request, checked out the first time
     * pushes: `project.upserted`, `thread.upserted`, `thread.status`,
       `thread.messages` `{id, count}`, `thread.archived`, `settings.updated`
   """
   use Phoenix.Channel
 
-  alias Workbench.{Models, Projects, Settings, Threads}
+  alias Workbench.{Models, Projects, PullRequests, Settings, Threads}
   alias Workbench.Projects.Project
   alias Workbench.Threads.Thread
   alias WorkbenchWeb.ChannelHelpers, as: H
@@ -135,6 +139,29 @@ defmodule WorkbenchWeb.LobbyChannel do
     else
       {:reply, {:error, %{reason: "unknown agent #{inspect(provider)}"}}, socket}
     end
+  end
+
+  # both answered from a task: gh and git fetch talk to GitHub
+  def handle_in("prs.list", params, socket) do
+    ref = socket_ref(socket)
+    filters = Map.take(params, ~w(state project_id author review))
+    Task.Supervisor.start_child(Workbench.TaskSupervisor, fn -> reply(ref, {:ok, PullRequests.list(filters)}) end)
+    {:noreply, socket}
+  end
+
+  def handle_in("pr.review", %{"project_id" => project_id, "number" => number} = params, socket) when is_binary(project_id) and is_integer(number) do
+    ref = socket_ref(socket)
+    provider = if params["provider"] in Thread.providers(), do: params["provider"], else: "claude"
+
+    Task.Supervisor.start_child(Workbench.TaskSupervisor, fn ->
+      case PullRequests.review(project_id, number, provider) do
+        {:ok, thread} -> reply(ref, {:ok, %{thread: Thread.to_json(thread)}})
+        {:error, %Ecto.Changeset{} = cs} -> reply(ref, {:error, %{reason: H.errors(cs)}})
+        {:error, reason} -> reply(ref, {:error, %{reason: H.reason(reason)}})
+      end
+    end)
+
+    {:noreply, socket}
   end
 
   def handle_in(event, _params, socket) do

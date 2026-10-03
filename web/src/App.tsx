@@ -6,13 +6,16 @@ import { PANEL } from "@/components/app/panel";
 import { cn } from "@/lib/utils";
 import { WorkspaceView } from "@/components/workspace/workspace";
 import { NewThreadDialog } from "@/components/app/new-thread-dialog";
+import { AgentMenu } from "@/components/app/agent-menu";
 import { AddProjectDialog } from "@/components/app/add-project-dialog";
 import { SettingsSidebar } from "@/components/settings/settings-sidebar";
+import { PrSidebar, prKey } from "@/components/app/pr-sidebar";
 import { SettingsView } from "@/components/settings/settings-view";
 import { DEFAULT_SECTION, isSection, type SectionId } from "@/components/settings/sections";
 import { useLobby } from "@/hooks/use-channels";
 import { useStore } from "@/store";
 import { hasToken } from "@/socket";
+import type { Provider, Thread } from "@/contracts";
 
 const fromHash = () => location.hash.match(/^#\/t\/([^/]+)(?:\/context)?$/)?.[1] ?? null;
 const contextFromHash = () => /^#\/t\/[^/]+\/context$/.test(location.hash);
@@ -23,11 +26,18 @@ const settingsFromHash = (): SectionId | null => {
   return isSection(m[1]) ? m[1] : DEFAULT_SECTION;
 };
 
+// what the sidebar lists, kept per browser
+type SidebarView = "threads" | "prs";
+const SIDEBAR_VIEW_KEY = "wb.sidebar";
+const readSidebarView = (): SidebarView => (localStorage.getItem(SIDEBAR_VIEW_KEY) === "prs" ? "prs" : "threads");
+
 const typing = (e: KeyboardEvent) => {
   const el = e.target as HTMLElement | null;
   // Monaco types into an EditContext div, xterm into its own textarea
   return !!el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || !!el.closest?.(".monaco-editor, .xterm"));
 };
+
+const prKeyOf = (t: Thread | undefined) => (t?.pr_number && t.project_id ? prKey(t.project_id, t.pr_number) : null);
 
 export default function App() {
   const { connected } = useLobby();
@@ -37,7 +47,12 @@ export default function App() {
   // Settings take over the sidebar and the main area; the thread stays
   // selected (and its workspace mounted, hidden) for when you come back.
   const [settings, setSettings] = useState<SectionId | null>(settingsFromHash);
-  const [newThread, setNewThread] = useState<{ open: boolean; projectId?: string | null }>({ open: false });
+  const [sidebarView, setSidebarViewState] = useState<SidebarView>(readSidebarView);
+  const setSidebarView = useCallback((v: SidebarView) => {
+    localStorage.setItem(SIDEBAR_VIEW_KEY, v);
+    setSidebarViewState(v);
+  }, []);
+  const [newThread, setNewThread] = useState<{ open: boolean; projectId?: string | null; provider?: Provider }>({ open: false });
   const [addProject, setAddProject] = useState(false);
   const threads = useStore((s) => s.threads);
 
@@ -109,6 +124,14 @@ export default function App() {
       <SidebarProvider peek="hover" className="h-svh overflow-hidden">
         {settings ? (
           <SettingsSidebar section={settings} onSection={openSettings} onBack={closeSettings} />
+        ) : sidebarView === "prs" ? (
+          <PrSidebar
+            connected={connected}
+            // the PR whose workspace is open
+            active={prKeyOf(threads.find((t) => t.id === rootId))}
+            onOpenThread={(t) => select(t.id)}
+            onBack={() => setSidebarView("threads")}
+          />
         ) : (
           <AppSidebar
             selected={selected}
@@ -119,6 +142,7 @@ export default function App() {
             onNewThread={(projectId) => setNewThread({ open: true, projectId })}
             onAddProject={() => setAddProject(true)}
             onSettings={() => openSettings()}
+            onPullRequests={() => setSidebarView("prs")}
           />
         )}
         {/* no card of its own: the thread's panes are the cards (see panel.ts) */}
@@ -149,9 +173,12 @@ export default function App() {
         </SidebarInset>
       </SidebarProvider>
 
+      {/* ⌘T: a new thread in the open thread's project, with the agent picked here */}
+      <AgentMenu onPick={(provider) => setNewThread({ open: true, projectId: threads.find((t) => t.id === selected)?.project_id ?? null, provider })} />
       <NewThreadDialog
         open={newThread.open}
         projectId={newThread.projectId}
+        provider={newThread.provider}
         onOpenChange={(open) => setNewThread((s) => ({ ...s, open }))}
         onCreated={(t) => select(t.id)}
         onAddProject={() => {

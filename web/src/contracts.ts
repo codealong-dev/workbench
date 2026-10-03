@@ -44,10 +44,44 @@ export interface Thread {
   model: string | null;
   effort?: string | null;
   status: Status;
+  /** Set on a workspace opened to review a GitHub pull request (Workbench.PullRequests). */
+  pr_number?: number | null;
+  pr_url?: string | null;
   /** User messages sent; only in the lobby list and `thread.messages`. */
   message_count?: number;
   inserted_at: string;
   updated_at: string;
+}
+
+/** A GitHub pull request of a project, from `prs.list` (Workbench.PullRequests). */
+export interface PullRequest {
+  project_id: string;
+  /** owner/name */
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  state: "open" | "merged" | "closed";
+  draft: boolean;
+  author: string | null;
+  head: string;
+  base: string;
+  created_at: string;
+  updated_at: string;
+  merged_at: string | null;
+  review_decision: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | null;
+  additions: number;
+  deletions: number;
+  changed_files: number;
+  body: string | null;
+}
+
+export interface PullRequestList {
+  prs: PullRequest[];
+  /** projects GitHub couldn't be asked about */
+  errors: { project_id: string; reason: string }[];
+  /** the projects on GitHub */
+  repos: { project_id: string; repo: string }[];
 }
 
 export interface Usage {

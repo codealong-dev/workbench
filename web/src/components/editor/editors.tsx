@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Editor, { DiffEditor as MonacoDiff } from "@monaco-editor/react";
+import { diffLines } from "diff";
 import { Columns2, ExternalLink, Rows2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { push } from "@/hooks/use-channels";
@@ -29,7 +30,7 @@ const OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
 };
 
 const fileUri = (root: string, path: string) => monaco.Uri.from({ scheme: "file", path: `/${root}/${path}` });
-const baseUri = (root: string, path: string) => monaco.Uri.from({ scheme: "wb-base", path: `/${root}/${path}` });
+const baseUri = (root: string, path: string, from?: string) => monaco.Uri.from({ scheme: "wb-base", path: `/${root}/${path}`, query: from ?? "" });
 
 /** Replace a model's text as one undoable edit, keeping cursors and scroll. */
 function replaceText(model: Model, text: string) {
@@ -157,6 +158,91 @@ function useFileModel(path: string, source: "file" | "context" = "file") {
   return { status, error, model, saving, save, dirty: !!dirty[key], conflict: conflict[key] ?? null, saved: saved[key], resolve };
 }
 
+/** The file as it was at the thread's base (or `from`, for a rename), refetched when an agent finishes. */
+function useBase(path: string, from?: string) {
+  const ws = useWorkspace();
+  const [base, setBase] = useState<{ model: Model; label: string; exists: boolean } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void push(ws.channel.current, "file.base", { path, ...(from ? { from } : {}) }).then((r) => {
+      if (cancelled || !r.ok) return;
+      const b = r.payload as { content: string; exists: boolean; base: string };
+      const uri = baseUri(ws.rootId, path, from);
+      const m = monaco.editor.getModel(uri) ?? monaco.editor.createModel(b.content, undefined, uri);
+      if (m.getValue() !== b.content) m.setValue(b.content);
+      setBase({ model: m, label: b.base, exists: b.exists });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ws.channel, ws.rootId, path, from, ws.version]);
+
+  return base;
+}
+
+type LineChange = { kind: "added" | "modified" | "deleted"; start: number; end: number };
+
+/** Line ranges of `text` that differ from `base`, VS Code's way: an insertion is
+ *  added, a replacement is modified, a removal marks the line above the gap. */
+function lineChanges(base: string, text: string): LineChange[] {
+  const out: LineChange[] = [];
+  const parts = diffLines(base, text);
+  let line = 1;
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    const n = p.count ?? 0;
+    if (!p.added && !p.removed) {
+      line += n;
+    } else if (p.removed && parts[i + 1]?.added) {
+      const m = parts[++i].count ?? 0;
+      out.push({ kind: "modified", start: line, end: line + m - 1 });
+      line += m;
+    } else if (p.added) {
+      out.push({ kind: "added", start: line, end: line + n - 1 });
+      line += n;
+    } else {
+      const at = Math.max(line - 1, 1);
+      out.push({ kind: "deleted", start: at, end: at });
+    }
+  }
+  return out;
+}
+
+const CHANGE_COLOR = { added: "#2ea04370", modified: "#0078d470", deleted: "#f8514970" };
+
+/** Gutter bars (and overview-ruler marks) for the lines that differ from the base, kept live while editing. */
+function useChangeGutter(ed: monaco.editor.IStandaloneCodeEditor | null, model: Model | null, base: Model | null) {
+  useEffect(() => {
+    if (!ed || !model || !base) return;
+    const decorations = ed.createDecorationsCollection();
+    const paint = () =>
+      decorations.set(
+        lineChanges(base.getValue(), model.getValue()).map((c) => ({
+          range: new monaco.Range(c.start, 1, c.end, 1),
+          options: {
+            isWholeLine: true,
+            linesDecorationsClassName: `wb-gutter-${c.kind}`,
+            overviewRuler: { color: CHANGE_COLOR[c.kind], position: monaco.editor.OverviewRulerLane.Left },
+          },
+        })),
+      );
+    paint();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const sub = model.onDidChangeContent(() => {
+      clearTimeout(timer);
+      timer = setTimeout(paint, 150);
+    });
+    const subBase = base.onDidChangeContent(paint);
+    return () => {
+      clearTimeout(timer);
+      sub.dispose();
+      subBase.dispose();
+      decorations.clear();
+    };
+  }, [ed, model, base]);
+}
+
 function Bar({ children }: { children: React.ReactNode }) {
   return <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-3 text-[12px]">{children}</div>;
 }
@@ -231,8 +317,10 @@ export function FileEditor({ path, reveal }: { path: string; reveal?: Reveal }) 
   const ws = useWorkspace();
   const mode = useResolvedTheme();
   const f = useFileModel(path);
+  const base = useBase(path);
   const bindSave = useSaveKey(f.save);
   const [ed, setEd] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
+  useChangeGutter(ed, f.model, base?.model ?? null);
 
   // scroll to the lines an agent pointed at, and select them
   useEffect(() => {
@@ -287,24 +375,9 @@ export function FileDiffEditor({ path, from }: { path: string; from?: string }) 
   const mode = useResolvedTheme();
   const f = useFileModel(path);
   const bindSave = useSaveKey(f.save);
-  const [base, setBase] = useState<{ model: Model; label: string; exists: boolean } | null>(null);
+  const base = useBase(path, from);
   const [inline, setInline] = useState(() => localStorage.getItem("wb.diffInline") === "1");
   const [empty, setEmpty] = useState<Model | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void push(ws.channel.current, "file.base", { path, ...(from ? { from } : {}) }).then((r) => {
-      if (cancelled || !r.ok) return;
-      const b = r.payload as { content: string; exists: boolean; base: string };
-      const uri = baseUri(ws.rootId, path);
-      const m = monaco.editor.getModel(uri) ?? monaco.editor.createModel(b.content, undefined, uri);
-      if (m.getValue() !== b.content) m.setValue(b.content);
-      setBase({ model: m, label: b.base, exists: b.exists });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [ws.channel, ws.rootId, path, from, ws.version]);
 
   // a deleted file: diff against nothing
   useEffect(() => {

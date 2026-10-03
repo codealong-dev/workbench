@@ -5,6 +5,7 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
     title: "Anywhere",
     keys: [
       ["New thread", "N"],
+      ["New thread with a chosen agent, in the open thread's project (Mac app)", "⌘T"],
       ["Search threads", "⌘K"],
       ["Show or hide the sidebar", "["],
       ["Open or close settings", "⌘,"],
@@ -13,6 +14,7 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
   {
     title: "In a workspace",
     keys: [
+      ["Show or hide the files and changes panel", "]"],
       ["Open a file", "⌘P"],
       ["Split the current tab to the right", "⌘\\"],
       ["Close the current tab", "Ctrl W"],

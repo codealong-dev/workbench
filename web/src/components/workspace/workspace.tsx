@@ -139,6 +139,20 @@ export function WorkspaceView({
     localStorage.setItem(PANEL_KEY, tab ?? "off");
   };
 
+  // "]" shows or hides it, as "[" does the sidebar: bare key, not while typing
+  useEffect(() => {
+    if (hidden) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "]" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable || t.closest?.(".monaco-editor, .xterm")) return;
+      e.preventDefault();
+      setPanel(panel ? null : panelTab);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hidden, panel, panelTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // -- data shared by the buffers --------------------------------------------
   // any agent here finishing a turn refreshes the diff and open files
   const busy = threads.some((t) => t.status === "running" || t.status === "awaiting_approval");
@@ -324,6 +338,16 @@ export function WorkspaceView({
         component: selectedBuffer.kind,
         tabComponent: "buffer",
         params: selectedBuffer,
+      });
+    }
+    // a pull request's new workspace: its changes (on the guide) beside the chat
+    if (!restored && root?.pr_number) {
+      e.api.addPanel({
+        id: bufferId({ kind: "changes" }),
+        component: "changes",
+        tabComponent: "buffer",
+        params: { kind: "changes" },
+        position: { referencePanel: bufferId(selectedBuffer), direction: "left" },
       });
     }
     setApi(e.api);

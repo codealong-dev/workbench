@@ -194,6 +194,7 @@ function TerminalPanel({ params, api }: IDockviewPanelProps<Buffer & { kind: "te
 
 function ChangesPanel() {
   const ws = useWorkspace();
+  const isPr = useStore((s) => !!s.threads.find((t) => t.id === ws.rootId)?.pr_number);
   return (
     <div className="flex h-full min-h-0 flex-col">
       <DiffView
@@ -207,6 +208,7 @@ function ChangesPanel() {
         onReview={ws.startReview}
         onPush={ws.openCommit}
         guide={ws.guide}
+        initialView={isPr ? "guide" : "changes"}
       />
     </div>
   );

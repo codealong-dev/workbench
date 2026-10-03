@@ -135,3 +135,13 @@ html.wb-dragging .dv-drop-target-container, html.wb-dragging .dv-drop-target { -
   -webkit-font-smoothing: auto;
   -moz-osx-font-smoothing: auto;
 }
+
+/* Changed-line bars in the file editor's gutter (editors.tsx), as VS Code draws them. */
+.monaco-editor .wb-gutter-added,
+.monaco-editor .wb-gutter-modified { margin-left: 3px; width: 3px !important; }
+.monaco-editor .wb-gutter-added { background: #2ea043; }
+.monaco-editor .wb-gutter-modified { background: #0078d4; }
+.monaco-editor .wb-gutter-deleted::after {
+  content: ""; position: absolute; left: 3px; bottom: -4px;
+  border: 4px solid transparent; border-left-color: #f85149;
+}

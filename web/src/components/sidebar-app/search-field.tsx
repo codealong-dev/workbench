@@ -34,7 +34,7 @@ export function SidebarSearchField({
       <SidebarInput
         placeholder={placeholder}
         aria-label="Search"
-        className="pl-8 pr-12"
+        className={shortcut ? "pl-8 pr-12" : "pl-8 pr-2"}
         {...props}
       />
       {shortcut && (

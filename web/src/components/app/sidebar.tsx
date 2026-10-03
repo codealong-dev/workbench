@@ -2,12 +2,12 @@ import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Archive,
-  Check,
   ChevronRight,
   CornerDownRight,
   FlaskConical,
   FolderPlus,
   FileText,
+  GitPullRequest,
   Link2,
   Monitor,
   Moon,
@@ -158,23 +158,6 @@ interface RowHandlers {
   onArchive: (t: Thread) => void;
 }
 
-function CopyLinkAction({ id }: { id: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <Tooltip content={done ? "Copied" : "Copy link"} side="top">
-      <SidebarMenuAction
-        aria-label="Copy link"
-        onClick={() => {
-          void copy(threadUrl(id));
-          setDone(true);
-          setTimeout(() => setDone(false), 1200);
-        }}
-      >
-        {done ? <Check /> : <Link2 />}
-      </SidebarMenuAction>
-    </Tooltip>
-  );
-}
 
 function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thread[]; open: boolean; onToggle: () => void; h: RowHandlers }) {
   const hasSessions = sessions.length > 0;
@@ -203,17 +186,17 @@ function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thre
     <SidebarMenuItem>
       <SidebarMenuButton
         icon={statusIcon(t.status)}
-        isActive={h.selected === t.id && !h.contextRoot}
+        isActive={h.selected === t.id}
         onClick={() => h.onSelect(t.id)}
         title={t.branch ? `${threadLabel(t)}\n${t.branch}` : threadLabel(t)}
         className="group/parent-row"
-        aria-expanded={open}
+        aria-expanded={hasSessions ? open : undefined}
       >
         <span className="min-w-0 truncate">{threadLabel(t)}</span>
-        <span
+        {hasSessions && <span
           role="button"
           tabIndex={-1}
-          aria-label={open ? "Hide thread pages and sessions" : "Show thread pages and sessions"}
+          aria-label={open ? "Hide sessions" : "Show sessions"}
           onClick={toggle}
           // closed: always shown, so hidden sessions are discoverable; open: only on hover
           className={cn(
@@ -228,7 +211,7 @@ function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thre
               className="text-muted-foreground"
             />
           </motion.span>
-        </span>
+        </span>}
       </SidebarMenuButton>
       {count > 0 && <SidebarMenuBadge title={`${count} message${count === 1 ? "" : "s"}`}>{count}</SidebarMenuBadge>}
       <SidebarMenuActions showOnHover>
@@ -248,7 +231,11 @@ function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thre
             ))}
           </DropdownContent>
         </DropdownMenu>
-        <CopyLinkAction id={t.id} />
+        <Tooltip content="Initial context" side="top">
+          <SidebarMenuAction aria-label="Initial context" className={h.contextRoot === t.id ? "text-foreground" : undefined} onClick={() => h.onOpenContext(t.id)}>
+            <FileText />
+          </SidebarMenuAction>
+        </Tooltip>
         <DropdownMenu>
           <DropdownTrigger
             render={
@@ -258,27 +245,18 @@ function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thre
             }
           />
           <DropdownContent className="w-[240px] min-w-0" align="start" sideOffset={4}>
-            <MenuItem index={0} icon={Archive} label={hasSessions ? "Archive thread and sessions…" : "Archive…"} onSelect={() => h.onArchive(t)} />
+            <MenuItem index={0} icon={Link2} label="Copy link" onSelect={() => void copy(threadUrl(t.id))} />
+            <MenuItem index={1} icon={Archive} label={hasSessions ? "Archive thread and sessions…" : "Archive…"} onSelect={() => h.onArchive(t)} />
           </DropdownContent>
         </DropdownMenu>
       </SidebarMenuActions>
       {error && <p role="alert" className="px-2 py-1 text-[12px] text-destructive">{error}</p>}
 
-      <SidebarMenuSub open={open}>
-        <SidebarMenuSubItem>
-          <SidebarMenuSubButton
-            href={`#/t/${t.id}/context`}
-            icon={FileText}
-            isActive={h.contextRoot === t.id}
-            onClick={(e) => { e.preventDefault(); h.onOpenContext(t.id); }}
-          >
-            Initial context
-          </SidebarMenuSubButton>
-        </SidebarMenuSubItem>
+      {hasSessions && <SidebarMenuSub open={open}>
         {sessions.map((s) => (
           <SessionRow key={s.id} t={s} h={h} />
         ))}
-      </SidebarMenuSub>
+      </SidebarMenuSub>}
     </SidebarMenuItem>
   );
 }
@@ -341,7 +319,7 @@ function Group(props: {
 
   return (
     <SidebarGroup collapsible>
-      <SidebarGroupLabel title={subtitle}>
+      <SidebarGroupLabel title={subtitle} className="text-muted-foreground hover:text-foreground">
         {title}
         {attention > 0 && <span className="ml-1.5 shrink-0 text-[11px] font-medium text-amber-600 dark:text-amber-400">{attention} needs you</span>}
       </SidebarGroupLabel>
@@ -407,6 +385,7 @@ export function AppSidebar(props: {
   onNewThread: (projectId?: string) => void;
   onAddProject: () => void;
   onSettings: () => void;
+  onPullRequests: () => void;
 }) {
   const { selected, connected, onSelect, onNewThread, onAddProject, onSettings } = props;
   const projects = useStore((s) => s.projects);
@@ -522,6 +501,11 @@ export function AppSidebar(props: {
                   </span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton icon={GitPullRequest} onClick={props.onPullRequests}>
+                  Pull requests
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </div>
         </SidebarHeader>
@@ -565,7 +549,9 @@ export function AppSidebar(props: {
           )}
         </SidebarContent>
 
-        <SidebarFooter>
+        {/* centred on the inset's status bar: the rail's py-2 + this pb would
+            sit the h-8 row 14px higher than the h-7 bar under the m-1 inset */}
+        <SidebarFooter className="-mb-1.5 pb-0">
           <div className="flex items-center gap-1 pr-1.5">
             <SidebarUserFooter
               name={
@@ -595,16 +581,6 @@ export function AppSidebar(props: {
                 </>
               }
             />
-            <Tooltip content="Add project" side="top">
-              <button type="button" aria-label="Add project" className={actionBtn} onClick={onAddProject}>
-                <FolderPlus size={16} strokeWidth={1.5} />
-              </button>
-            </Tooltip>
-            <Tooltip content={THEME_LABEL[theme]} side="top">
-              <button type="button" aria-label="Theme" className={actionBtn} onClick={cycleTheme}>
-                <ThemeIcon size={16} strokeWidth={1.5} />
-              </button>
-            </Tooltip>
             <Tooltip content="Settings  ⌘," side="top">
               <button type="button" aria-label="Settings" className={actionBtn} onClick={onSettings}>
                 <Settings size={16} strokeWidth={1.5} />
