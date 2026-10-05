@@ -5,7 +5,8 @@ import { ThinkingIndicator } from "@/components/ui/thinking-indicator";
 import { fileIcon } from "@/lib/file-icons";
 import { cn } from "@/lib/utils";
 import type { DiffFile, DiffResult, GuideData, GuideGroup } from "@/contracts";
-import { Counts, DiffBlock, type Patches } from "./diff-view";
+import { VirtualizerContext } from "@pierre/diffs/react";
+import { Counts, DiffBlock, useVirtualScroller, type Patches } from "./diff-view";
 
 const VIEWED_KEY = "wb.guideViewed.";
 
@@ -179,6 +180,7 @@ export function GuideView(props: {
   }, [chunks, diff?.truncated, load]);
 
   const scroller = useRef<HTMLDivElement>(null);
+  const { virtualizer, ref: scrollerRef } = useVirtualScroller(scroller);
   const sections = useRef<(HTMLElement | null)[]>([]);
   const [active, setActive] = useState(0);
   const spy = useCallback(() => {
@@ -220,48 +222,50 @@ export function GuideView(props: {
 
   return (
     <div className="@container relative flex min-h-0 flex-1 flex-col">
-      <div ref={scroller} onScroll={spy} className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[1400px] px-8 pb-10">
-          {failure && <div className="mt-4 rounded-lg bg-destructive-light px-3 py-2 text-[12px] text-destructive">Couldn't write the guide: {failure}</div>}
-          {generating && (
-            <div className="mt-4 flex items-center gap-2 rounded-lg bg-surface-3 px-3 py-2 text-[12px] text-muted-foreground shadow-surface-1">
-              <ThinkingIndicator showIcon={false} /> Writing a new guide. This one stays until it is ready.
+      <VirtualizerContext.Provider value={virtualizer}>
+        <div ref={scrollerRef} onScroll={spy} className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-[1400px] px-8 pb-10">
+            {failure && <div className="mt-4 rounded-lg bg-destructive-light px-3 py-2 text-[12px] text-destructive">Couldn't write the guide: {failure}</div>}
+            {generating && (
+              <div className="mt-4 flex items-center gap-2 rounded-lg bg-surface-3 px-3 py-2 text-[12px] text-muted-foreground shadow-surface-1">
+                <ThinkingIndicator showIcon={false} /> Writing a new guide. This one stays until it is ready.
+              </div>
+            )}
+            {data?.stale && !generating && (
+              <div className="mt-4 flex items-center gap-3 rounded-lg bg-surface-3 px-3 py-2 text-[12px] text-muted-foreground shadow-surface-1">
+                <span className="min-w-0 flex-1">The changes moved on since this guide was written.</span>
+                <Button size="compact" variant="ghost" onClick={onGenerate}>
+                  Regenerate
+                </Button>
+              </div>
+            )}
+            <header className="pt-6">
+              {guide.summary && <p className="max-w-[70ch] text-[14px] leading-relaxed text-pretty">{guide.summary}</p>}
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {guide.model ?? guide.provider} · {new Date(guide.generated_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+              </p>
+            </header>
+            <div className="divide-y divide-border">
+              {chunks.map((c, i) => (
+                <Chunk
+                  key={c.group.title + i}
+                  index={i + 1}
+                  total={chunks.length}
+                  group={c.group}
+                  files={c.files}
+                  patches={patches}
+                  diffStyle={diffStyle}
+                  viewed={viewed}
+                  onToggle={toggle}
+                  onOpenFile={onOpenFile}
+                  onOpenLine={onOpenLine}
+                  setRef={(el) => void (sections.current[i] = el)}
+                />
+              ))}
             </div>
-          )}
-          {data?.stale && !generating && (
-            <div className="mt-4 flex items-center gap-3 rounded-lg bg-surface-3 px-3 py-2 text-[12px] text-muted-foreground shadow-surface-1">
-              <span className="min-w-0 flex-1">The changes moved on since this guide was written.</span>
-              <Button size="compact" variant="ghost" onClick={onGenerate}>
-                Regenerate
-              </Button>
-            </div>
-          )}
-          <header className="pt-6">
-            {guide.summary && <p className="max-w-[70ch] text-[14px] leading-relaxed text-pretty">{guide.summary}</p>}
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              {guide.model ?? guide.provider} · {new Date(guide.generated_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
-            </p>
-          </header>
-          <div className="divide-y divide-border">
-            {chunks.map((c, i) => (
-              <Chunk
-                key={c.group.title + i}
-                index={i + 1}
-                total={chunks.length}
-                group={c.group}
-                files={c.files}
-                patches={patches}
-                diffStyle={diffStyle}
-                viewed={viewed}
-                onToggle={toggle}
-                onOpenFile={onOpenFile}
-                onOpenLine={onOpenLine}
-                setRef={(el) => void (sections.current[i] = el)}
-              />
-            ))}
           </div>
         </div>
-      </div>
+      </VirtualizerContext.Provider>
       {chunks.length > 1 && <Rail titles={chunks.map((c) => c.group.title)} active={active} onJump={jump} />}
     </div>
   );

@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileDiff } from "@pierre/diffs/react";
-import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
+import { FileDiff, VirtualizerContext } from "@pierre/diffs/react";
+import { parsePatchFiles, Virtualizer, type FileDiffMetadata } from "@pierre/diffs";
 import { ArrowUpFromLine, BookOpenText, Columns2, ExternalLink, FileDiff as FileDiffIcon, Loader2, Rows2, ScanSearch, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabItem, TabsList } from "@/components/ui/tabs";
@@ -109,6 +109,24 @@ export function usePatches(diff: DiffResult | null, loadFile: (path: string) => 
 
 export type Patches = ReturnType<typeof usePatches>;
 
+/**
+ * A scroll container whose diffs only render the lines near its viewport:
+ * put `ref` on the scroller (its first child holds the content) and `virtualizer`
+ * in a `VirtualizerContext` around the `DiffBlock`s. `el` gets the scroller.
+ */
+export function useVirtualScroller(el: React.RefObject<HTMLDivElement | null>) {
+  const [virtualizer] = useState(() => new Virtualizer());
+  const ref = useCallback(
+    (node: HTMLDivElement | null) => {
+      el.current = node;
+      if (node) virtualizer.setup(node);
+      else virtualizer.cleanUp();
+    },
+    [el, virtualizer],
+  );
+  return { virtualizer, ref };
+}
+
 /** How long a guide has been in the making. */
 function Elapsed({ since }: { since: number }) {
   const [now, setNow] = useState(() => Date.now());
@@ -187,6 +205,7 @@ export function DiffView(props: {
   const { lazy } = patches;
   const refs = useRef<Record<string, HTMLDivElement | null>>({});
   const scroller = useRef<HTMLDivElement>(null);
+  const { virtualizer, ref: scrollerRef } = useVirtualScroller(scroller);
   const [active, setActive] = useState<string | null>(null);
   // After jumping to a file, keep it as the active one until the user scrolls themselves
   // (the smooth scroll would otherwise flick through every file on the way).
@@ -294,42 +313,46 @@ export function DiffView(props: {
         )}
       </DiffHeader>
 
-      <div
-        ref={scroller}
-        className={cn("min-h-0 flex-1 overflow-y-auto", view === "guide" && "hidden")}
-        onScroll={onScroll}
-        onWheel={takeOver}
-        onTouchMove={takeOver}
-        onPointerDown={takeOver}
-        onKeyDown={takeOver}
-      >
-        {error && <div className="m-4 rounded-lg bg-destructive-light px-3 py-2 text-[12px] text-destructive">{error}</div>}
-        {reviewError && <div className="m-4 rounded-lg bg-destructive-light px-3 py-2 text-[12px] text-destructive">Couldn't start the review: {reviewError}</div>}
-        {diff && files.length === 0 && !error && <div className="py-20 text-center text-[13px] text-muted-foreground">No changes yet.</div>}
-        {diff?.truncated && <div className="px-4 pt-3 text-[12px] text-muted-foreground">This diff is large. Pick a file in Changes to load it.</div>}
+      <VirtualizerContext.Provider value={virtualizer}>
+        <div
+          ref={scrollerRef}
+          className={cn("min-h-0 flex-1 overflow-y-auto", view === "guide" && "hidden")}
+          onScroll={onScroll}
+          onWheel={takeOver}
+          onTouchMove={takeOver}
+          onPointerDown={takeOver}
+          onKeyDown={takeOver}
+        >
+          <div>
+            {error && <div className="m-4 rounded-lg bg-destructive-light px-3 py-2 text-[12px] text-destructive">{error}</div>}
+            {reviewError && <div className="m-4 rounded-lg bg-destructive-light px-3 py-2 text-[12px] text-destructive">Couldn't start the review: {reviewError}</div>}
+            {diff && files.length === 0 && !error && <div className="py-20 text-center text-[13px] text-muted-foreground">No changes yet.</div>}
+            {diff?.truncated && <div className="px-4 pt-3 text-[12px] text-muted-foreground">This diff is large. Pick a file in Changes to load it.</div>}
 
-        <div className="flex flex-col gap-3 p-3">
-          {files.map((f) => {
-            const blocks = patches.blocks(f.path);
-            if (!blocks?.length) {
-              return f.binary ? (
-                <div key={f.path} ref={(el) => void (refs.current[f.path] = el)} className="rounded-lg px-3 py-2 text-[12px] text-muted-foreground shadow-surface-1">
-                  <span className="font-mono">{f.path}</span>: binary file
-                </div>
-              ) : diff?.truncated ? (
-                <div key={f.path} ref={(el) => void (refs.current[f.path] = el)} />
-              ) : null;
-            }
-            return (
-              <div key={f.path} ref={(el) => void (refs.current[f.path] = el)} className="wb-diff scroll-mt-3 overflow-hidden rounded-lg shadow-surface-1">
-                {blocks.map((b, i) => (
-                  <DiffBlock key={i} file={b} diffStyle={diffStyle} onOpenFile={onOpenFile} onOpenLine={onOpenLine} />
-                ))}
-              </div>
-            );
-          })}
+            <div className="flex flex-col gap-3 p-3">
+              {files.map((f) => {
+                const blocks = patches.blocks(f.path);
+                if (!blocks?.length) {
+                  return f.binary ? (
+                    <div key={f.path} ref={(el) => void (refs.current[f.path] = el)} className="rounded-lg px-3 py-2 text-[12px] text-muted-foreground shadow-surface-1">
+                      <span className="font-mono">{f.path}</span>: binary file
+                    </div>
+                  ) : diff?.truncated ? (
+                    <div key={f.path} ref={(el) => void (refs.current[f.path] = el)} />
+                  ) : null;
+                }
+                return (
+                  <div key={f.path} ref={(el) => void (refs.current[f.path] = el)} className="wb-diff scroll-mt-3 overflow-hidden rounded-lg shadow-surface-1">
+                    {blocks.map((b, i) => (
+                      <DiffBlock key={i} file={b} diffStyle={diffStyle} onOpenFile={onOpenFile} onOpenLine={onOpenLine} />
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
-      </div>
+      </VirtualizerContext.Provider>
 
       {view === "guide" && guide && (
         <GuideView
