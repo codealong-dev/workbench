@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
 import type { Channel } from "phoenix";
 import { motion } from "framer-motion";
 import { ArrowUpFromLine, Check, ChevronDown, ChevronRight, ExternalLink, GitCommitHorizontal, GitPullRequest, Minus, Plus, Sparkles, Undo2, X } from "lucide-react";
@@ -10,7 +10,7 @@ import { push } from "@/hooks/use-channels";
 import { useScm } from "@/hooks/use-scm";
 import { spring } from "@/lib/springs";
 import { cn } from "@/lib/utils";
-import type { DiffResult, PushResult, ScmFile, Thread } from "@/contracts";
+import type { CommitStatus, DiffResult, PushResult, ScmFile, Thread } from "@/contracts";
 import { useCommitModel } from "./commit-dialog";
 import { TreeRows, type Row } from "./file-tree";
 import { IconButton, splitPath, STATUS, StatusBox } from "./panel-bits";
@@ -19,9 +19,22 @@ export type PushOutcome = { ok: true; result: PushResult } | { ok: false; error:
 
 type Outcome = { kind: "done"; text: string; pr?: string | null } | { kind: "error"; text: string };
 
+/** The branch's push state: its remote, and how many commits no remote has yet. Refetches with `trigger`. */
+function usePushStatus(channel: RefObject<Channel | null>, trigger: unknown) {
+  const [status, setStatus] = useState<CommitStatus | null>(null);
+  const refresh = useCallback(async () => {
+    const r = await push(channel.current, "commit.status");
+    if (r.ok) setStatus((r.payload as { status: CommitStatus }).status);
+  }, [channel]);
+  useEffect(() => {
+    if (channel.current) void refresh();
+  }, [trigger]); // eslint-disable-line react-hooks/exhaustive-deps
+  return { status, refresh };
+}
+
 /**
  * Source control at the top of the Changes tab: write a message, stage files one
- * by one or all together, commit. `toolbar` goes above it; `children` follow the
+ * by one or all together, commit; push once nothing is left to commit. `toolbar` goes above it; `children` follow the
  * file lists, in the same scroll.
  */
 export function ScmTab(props: {
@@ -42,11 +55,13 @@ export function ScmTab(props: {
 }) {
   const { thread, channel, message, onMessage, selected, onOpen, onOpenInEditor, onPush, onChanged } = props;
   const scm = useScm(channel, props.trigger);
+  const pushStatus = usePushStatus(channel, props.trigger);
   const model = useCommitModel(thread);
   const [stagedOpen, setStagedOpen] = useState(true);
   const [unstagedOpen, setUnstagedOpen] = useState(true);
   const [suggesting, setSuggesting] = useState(false);
   const [committing, setCommitting] = useState(false);
+  const [pushing, setPushing] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
   const staged = scm.changes?.staged ?? [];
@@ -95,6 +110,17 @@ export function ScmTab(props: {
       setOutcome(p.ok ? { kind: "done", text: `Committed ${sha} and pushed ${p.result.branch}`, pr: p.result.pr_url } : { kind: "error", text: `Committed ${sha}. ${p.error}` });
     } else setOutcome({ kind: "done", text: `Committed ${sha}` });
     setCommitting(false);
+    void pushStatus.refresh();
+  };
+
+  const pushBranch = async () => {
+    if (pushing) return;
+    setPushing(true);
+    setOutcome(null);
+    const p = await onPush();
+    setOutcome(p.ok ? { kind: "done", text: `Pushed ${p.result.branch}`, pr: p.result.pr_url } : { kind: "error", text: p.error });
+    setPushing(false);
+    void pushStatus.refresh();
   };
 
   const rows = (files: ScmFile[], key: string): Row[] =>
@@ -146,6 +172,11 @@ export function ScmTab(props: {
   const open = (row: Row) => row.kind === "file" && onOpen(row.path);
   const openKept = (row: Row) => row.kind === "file" && onOpen(row.path, true);
   const label = staged.length > 0 ? `Commit ${staged.length}` : "Commit all";
+  const unpushed = pushStatus.status?.remote ? pushStatus.status.unpushed : 0;
+  const canCommit = !!title && total > 0;
+  // nothing left to commit but commits to push: pushing is the next step
+  const pushFirst = !!scm.changes && total === 0 && unpushed > 0;
+  const busy = committing || pushing;
 
   return (
     <>
@@ -178,24 +209,30 @@ export function ScmTab(props: {
         </div>
         {suggesting && <p className="px-1 text-[12px] text-muted-foreground">Reading the changes{model ? ` with ${model}` : ""}…</p>}
         <div className="flex items-center">
-          <Button size="compact" leadingIcon={GitCommitHorizontal} loading={committing} disabled={!title || total === 0} onClick={() => void commit(false)} className="min-w-0 flex-1 rounded-r-none">
-            {label}
-          </Button>
+          {pushFirst ? (
+            <Button size="compact" leadingIcon={ArrowUpFromLine} loading={pushing} disabled={committing} onClick={() => void pushBranch()} className="min-w-0 flex-1 rounded-r-none">
+              Push {unpushed} commit{unpushed === 1 ? "" : "s"}
+            </Button>
+          ) : (
+            <Button size="compact" leadingIcon={GitCommitHorizontal} loading={committing} disabled={!canCommit || pushing} onClick={() => void commit(false)} className="min-w-0 flex-1 rounded-r-none">
+              {label}
+            </Button>
+          )}
           <DropdownMenu>
             <DropdownTrigger
               render={
-                <Button size="icon-compact" aria-label="Commit options" disabled={committing || !title || total === 0} className="rounded-l-none border-l border-background/20">
+                <Button size="icon-compact" aria-label="Commit options" disabled={busy} className="rounded-l-none border-l border-background/20">
                   <ChevronDown />
                 </Button>
               }
             />
             <DropdownContent>
-              <MenuItem index={0} icon={GitCommitHorizontal} label="Commit" onSelect={() => void commit(false)} />
-              <MenuItem index={1} icon={ArrowUpFromLine} label="Commit and push" onSelect={() => void commit(true)} />
+              <MenuItem index={0} icon={GitCommitHorizontal} label="Commit" disabled={!canCommit} onSelect={() => void commit(false)} />
+              <MenuItem index={1} icon={ArrowUpFromLine} label="Commit and push" disabled={!canCommit} onSelect={() => void commit(true)} />
+              <MenuItem index={2} icon={ArrowUpFromLine} label={unpushed > 0 ? `Push ${unpushed} commit${unpushed === 1 ? "" : "s"}` : "Push"} onSelect={() => void pushBranch()} />
             </DropdownContent>
           </DropdownMenu>
         </div>
-        {staged.length === 0 && total > 0 && <p className="px-1 text-[11px] text-muted-foreground">Nothing is staged, so everything will be committed.</p>}
         {outcome && (
           <div className={cn("flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px]", outcome.kind === "done" ? "bg-muted text-muted-foreground" : "bg-destructive-light text-destructive")}>
             {outcome.kind === "done" && <Check className="size-3.5 shrink-0 text-green-600 dark:text-green-400" />}

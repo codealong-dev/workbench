@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import type { Channel } from "phoenix";
-import { ArrowUpFromLine, ChevronRight, ChevronsDownUp, ExternalLink, Files, GitCompareArrows, GitPullRequest, RefreshCw, ListFilter, Search, TextSearch, X } from "lucide-react";
+import { ChevronRight, ChevronsDownUp, ExternalLink, Files, GitCompareArrows, RefreshCw, ListFilter, Search, TextSearch } from "lucide-react";
 import { motion } from "framer-motion";
 import { Tabs, TabItem, TabsList } from "@/components/ui/tabs";
 import { ResizeHandle } from "@/components/ui/resize-handle";
@@ -317,8 +317,6 @@ function ChangesTab(props: {
   const { diff, error, loading, onRefresh, selected, onOpen, onOpenInEditor, onPush } = props;
   const [open, setOpen] = useState(true);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [pushing, setPushing] = useState(false);
-  const [pushed, setPushed] = useState<PushOutcome | null>(null);
   const files = diff?.files ?? [];
   const byPath = useMemo(() => new Map(files.map((f) => [f.path, f])), [files]);
   const totals = files.reduce((a, f) => ({ additions: a.additions + f.additions, deletions: a.deletions + f.deletions }), { additions: 0, deletions: 0 });
@@ -385,43 +383,10 @@ function ChangesTab(props: {
                 "Loading…"
               )}
             </div>
-            <IconButton
-              label={pushing ? "Pushing…" : "Push branch (git push -u origin)"}
-              onClick={async () => {
-                if (pushing) return;
-                setPushing(true);
-                setPushed(await onPush());
-                setPushing(false);
-              }}
-            >
-              <ArrowUpFromLine className={cn(pushing && "animate-pulse")} />
-            </IconButton>
             <IconButton label="Refresh" onClick={onRefresh}>
               <RefreshCw className={cn(loading && "animate-spin")} />
             </IconButton>
           </Toolbar>
-
-          {pushed && (
-            <div className={cn("mx-2 mb-1 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px]", pushed.ok ? "bg-muted text-muted-foreground" : "bg-destructive-light text-destructive")}>
-              {pushed.ok ? (
-                <>
-                  <span className="min-w-0 flex-1 truncate">
-                    Pushed <span className="font-mono text-foreground">{pushed.result.branch}</span>
-                  </span>
-                  {pushed.result.pr_url && (
-                    <a href={pushed.result.pr_url} target="_blank" rel="noreferrer" className="flex shrink-0 items-center gap-1 font-medium text-foreground hover:underline">
-                      <GitPullRequest className="size-3.5" /> Open PR
-                    </a>
-                  )}
-                </>
-              ) : (
-                <span className="min-w-0 flex-1 whitespace-pre-wrap">{pushed.error}</span>
-              )}
-              <button type="button" aria-label="Dismiss" onClick={() => setPushed(null)} className="rounded p-0.5 hover:bg-hover">
-                <X className="size-3" />
-              </button>
-            </div>
-          )}
         </>
       }
     >
