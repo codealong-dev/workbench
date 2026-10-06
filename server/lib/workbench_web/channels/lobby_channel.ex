@@ -18,7 +18,7 @@ defmodule WorkbenchWeb.LobbyChannel do
     * `pr.review` `{project_id, number, provider?}` -> `{thread}`: the workspace
       reviewing that pull request, checked out the first time
     * pushes: `project.upserted`, `thread.upserted`, `thread.status`,
-      `thread.messages` `{id, count}`, `thread.archived`, `settings.updated`
+      `thread.messages` `{id, count}`, `thread.activity` `{id, activity}`, `thread.archived`, `settings.updated`
   """
   use Phoenix.Channel
 
@@ -176,6 +176,11 @@ defmodule WorkbenchWeb.LobbyChannel do
 
   def handle_info({:thread_status, id, status}, socket) do
     push(socket, "thread.status", %{id: id, status: status})
+    {:noreply, socket}
+  end
+
+  def handle_info({:thread_activity, id, text}, socket) do
+    push(socket, "thread.activity", %{id: id, activity: text})
     {:noreply, socket}
   end
 

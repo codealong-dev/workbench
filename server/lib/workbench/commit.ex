@@ -104,10 +104,11 @@ defmodule Workbench.Commit do
   # -- the title ------------------------------------------------------------------
 
   @doc "A suggested commit title for what is uncommitted: `{:ok, title}` or `{:error, message}`."
-  def suggest(%Thread{worktree_path: wt} = t) do
+  def suggest(%Thread{worktree_path: wt} = t, opts \\ []) do
     with :ok <- check_dir(wt),
          [_ | _] = files <- uncommitted(wt),
-         {:ok, text} <- OneShot.ask(config(t), prompt(wt, files), id: "commit-#{t.id}", cwd: wt, initial_context: t.initial_context, timeout: @timeout_ms, label: "commit"),
+         {files, cached?} = suggest_scope(wt, files, opts),
+         {:ok, text} <- OneShot.ask(config(t), prompt(wt, files, cached?), id: "commit-#{t.id}", cwd: wt, initial_context: t.initial_context, timeout: @timeout_ms, label: "commit"),
          {:ok, title} <- clean(text) do
       {:ok, title}
     else
@@ -116,9 +117,17 @@ defmodule Workbench.Commit do
     end
   end
 
-  @doc "The message sent to the model."
-  def prompt(wt, files) do
-    {patch, _} = Git.cmd(wt, ["diff", "HEAD", "--no-color", "--no-ext-diff", "-M"])
+  # With `staged: true` and something staged, only the index is going to be committed.
+  defp suggest_scope(wt, files, opts) do
+    case if(opts[:staged], do: split(wt).staged, else: []) do
+      [] -> {files, false}
+      staged -> {staged, true}
+    end
+  end
+
+  @doc "The message sent to the model: the whole working tree, or with `cached?` just the index."
+  def prompt(wt, files, cached? \\ false) do
+    {patch, _} = Git.cmd(wt, ["diff", if(cached?, do: "--cached", else: "HEAD"), "--no-color", "--no-ext-diff", "-M"])
 
     recent =
       case Git.run(wt, ["log", "-n", "8", "--format=%s"]) do
@@ -160,24 +169,30 @@ defmodule Workbench.Commit do
 
   # -- committing -----------------------------------------------------------------
 
-  @doc "Stage everything and commit it with `title`: `{:ok, %{sha, title}}`."
-  def commit(%Thread{worktree_path: wt}, title) when is_binary(title) do
+  @doc """
+  Commit with `title`: `{:ok, %{sha, title}}`. Everything is staged first,
+  unless `staged: true`, which commits the index as it is (and stages
+  everything only when nothing is staged, like VS Code's smart commit).
+  """
+  def commit(thread, title, opts \\ [])
+
+  def commit(%Thread{worktree_path: wt}, title, opts) when is_binary(title) do
     title = String.trim(title)
 
     cond do
       title == "" -> {:error, "write a commit title"}
       String.contains?(title, "\n") -> {:error, "the title is one line"}
       byte_size(title) > 500 -> {:error, "the title is too long"}
-      true -> do_commit(wt, title)
+      true -> do_commit(wt, title, opts[:staged] == true)
     end
   end
 
-  def commit(_, _), do: {:error, "write a commit title"}
+  def commit(_, _, _), do: {:error, "write a commit title"}
 
-  defp do_commit(wt, title) do
+  defp do_commit(wt, title, staged?) do
     with :ok <- check_dir(wt),
          [_ | _] <- uncommitted(wt),
-         {:ok, _} <- Git.run(wt, ["add", "-A"]),
+         :ok <- stage_for_commit(wt, staged?),
          {:ok, _} <- Git.run(wt, ["commit", "-m", title]),
          {:ok, sha} <- Git.run(wt, ["rev-parse", "HEAD"]) do
       {:ok, %{sha: sha, title: title}}
@@ -186,6 +201,118 @@ defmodule Workbench.Commit do
       {:error, _} = err -> err
     end
   end
+
+  defp stage_for_commit(wt, false), do: ok(Git.run(wt, ["add", "-A"]))
+  defp stage_for_commit(wt, true), do: if(split(wt).staged == [], do: ok(Git.run(wt, ["add", "-A"])), else: :ok)
+
+  defp ok({:ok, _}), do: :ok
+  defp ok(err), do: err
+
+  # -- source control: staged and unstaged ------------------------------------------
+
+  @doc """
+  What `git status` shows, split like VS Code does: `%{staged: [file], unstaged: [file]}`
+  with `file` = `%{path, old_path, status}`. A file with edits both in the index and
+  on disk is in both lists; untracked files are unstaged.
+  """
+  def changes(%Thread{worktree_path: wt}) do
+    with :ok <- check_dir(wt), do: {:ok, split(wt)}
+  end
+
+  defp split(wt) do
+    {staged, unstaged} =
+      wt
+      |> entries()
+      |> Enum.reduce({[], []}, fn {x, y, path, old}, {st, un} ->
+        st = if x in [?A, ?M, ?D, ?R, ?C, ?T], do: [file(path, old, column(x)) | st], else: st
+        un = if x == ?? or y != ?\s, do: [file(path, nil, if(x == ??, do: "untracked", else: column(y))) | un], else: un
+        {st, un}
+      end)
+
+    %{staged: Enum.reverse(staged), unstaged: Enum.reverse(unstaged)}
+  end
+
+  defp file(path, old, status), do: %{path: path, old_path: old, status: status}
+
+  defp column(?A), do: "added"
+  defp column(?D), do: "deleted"
+  defp column(c) when c in [?R, ?C], do: "renamed"
+  defp column(_), do: "modified"
+
+  # `git status --porcelain -z`: {x, y, path, old_path | nil}
+  defp entries(wt) do
+    wt
+    |> Git.cmd(["status", "--porcelain", "-z", "-uall"])
+    |> elem(0)
+    |> String.split("\0", trim: true)
+    |> entries([])
+  end
+
+  defp entries([], acc), do: Enum.reverse(acc)
+  defp entries([<<x, y, ?\s, path::binary>>, old | rest], acc) when x in [?R, ?C] or y in [?R, ?C], do: entries(rest, [{x, y, path, old} | acc])
+  defp entries([<<x, y, ?\s, path::binary>> | rest], acc), do: entries(rest, [{x, y, path, nil} | acc])
+  defp entries([_ | rest], acc), do: entries(rest, acc)
+
+  @doc "Stage `paths`, or everything when `paths` is nil: `{:ok, changes}`."
+  def stage(%Thread{worktree_path: wt}, paths) do
+    with :ok <- check_dir(wt),
+         {:ok, paths} <- safe_paths(paths),
+         {:ok, _} <- git_paths(wt, ["add", "-A"], paths) do
+      {:ok, split(wt)}
+    end
+  end
+
+  @doc "Take `paths` (all when nil) out of the index; the files keep their edits: `{:ok, changes}`."
+  def unstage(%Thread{worktree_path: wt}, paths) do
+    with :ok <- check_dir(wt),
+         {:ok, paths} <- safe_paths(paths),
+         {:ok, _} <- git_paths(wt, ["reset", "-q"], with_old_paths(wt, paths)) do
+      {:ok, split(wt)}
+    end
+  end
+
+  # a staged rename is two paths to git
+  defp with_old_paths(_wt, nil), do: nil
+
+  defp with_old_paths(wt, paths) do
+    olds = for {_, _, path, old} <- entries(wt), old != nil, path in paths, do: old
+    Enum.uniq(paths ++ olds)
+  end
+
+  @doc """
+  Throw away the edits on disk of `paths` (all unstaged files when nil): tracked
+  files go back to the index, untracked files are deleted. Staged work is kept.
+  """
+  def discard(%Thread{worktree_path: wt}, paths) do
+    with :ok <- check_dir(wt),
+         {:ok, paths} <- safe_paths(paths) do
+      unstaged = split(wt).unstaged
+      unstaged = if paths, do: Enum.filter(unstaged, &(&1.path in paths)), else: unstaged
+      {untracked, tracked} = Enum.split_with(unstaged, &(&1.status == "untracked"))
+
+      with :ok <- discard_group(wt, ["restore", "--worktree"], tracked),
+           :ok <- discard_group(wt, ["clean", "-f", "-q"], untracked) do
+        {:ok, split(wt)}
+      end
+    end
+  end
+
+  defp discard_group(_wt, _cmd, []), do: :ok
+  defp discard_group(wt, cmd, files), do: ok(git_paths(wt, cmd, Enum.map(files, & &1.path)))
+
+  # Paths come from the client: they stay inside the worktree and are never read as options or patterns.
+  defp safe_paths(nil), do: {:ok, nil}
+
+  defp safe_paths(paths) when is_list(paths) do
+    safe = for p <- paths, is_binary(p), {:ok, rel} <- [Path.safe_relative(p)], rel not in ["", "."], do: rel
+    if length(safe) == length(paths), do: {:ok, safe}, else: {:error, "path is outside the worktree"}
+  end
+
+  defp safe_paths(_), do: {:error, "path is outside the worktree"}
+
+  defp git_paths(wt, cmd, nil), do: Git.run(wt, ["--literal-pathspecs" | cmd])
+  defp git_paths(_wt, _cmd, []), do: {:ok, ""}
+  defp git_paths(wt, cmd, paths), do: Git.run(wt, ["--literal-pathspecs" | cmd] ++ ["--" | paths])
 
   # -- history --------------------------------------------------------------------
 

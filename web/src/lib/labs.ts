@@ -1,5 +1,6 @@
-import { FlaskConical, Sparkle, SquareTerminal } from "lucide-react";
+import { FlaskConical } from "lucide-react";
 import type { IconComponent } from "@/lib/icon-context";
+import { ClaudeIcon, CodexIcon } from "@/lib/provider-icons";
 import { useStore } from "@/store";
 import type { ModelOption, Provider } from "@/contracts";
 
@@ -13,8 +14,8 @@ export interface Lab {
 }
 
 export const LABS: Lab[] = [
-  { id: "claude", lab: "Anthropic", agent: "Claude Code", blurb: "Claude models, through your Claude Code login", icon: Sparkle },
-  { id: "codex", lab: "OpenAI", agent: "Codex", blurb: "GPT models, through the Codex CLI and `codex login`", icon: SquareTerminal },
+  { id: "claude", lab: "Anthropic", agent: "Claude Code", blurb: "Claude models, through your Claude Code login", icon: ClaudeIcon },
+  { id: "codex", lab: "OpenAI", agent: "Codex", blurb: "GPT models, through the Codex CLI and `codex login`", icon: CodexIcon },
   { id: "fake", lab: "Workbench", agent: "Fake", blurb: "No agent: canned replies, for working on the UI", icon: FlaskConical },
 ];
 

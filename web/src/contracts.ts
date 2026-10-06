@@ -44,6 +44,8 @@ export interface Thread {
   model: string | null;
   effort?: string | null;
   status: Status;
+  /** One line on what the agent is doing, asking for, or last said. */
+  activity?: string | null;
   /** Set on a workspace opened to review a GitHub pull request (Workbench.PullRequests). */
   pr_number?: number | null;
   pr_url?: string | null;
@@ -221,6 +223,18 @@ export interface PushResult {
 export interface UncommittedFile {
   path: string;
   status: "added" | "modified" | "deleted" | "renamed" | "untracked";
+}
+
+/** One file in Source Control: staged (in the index) or not. */
+export interface ScmFile {
+  path: string;
+  old_path: string | null;
+  status: FileStatus;
+}
+
+export interface ScmChanges {
+  staged: ScmFile[];
+  unstaged: ScmFile[];
 }
 
 export interface CommitStatus {

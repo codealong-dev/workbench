@@ -1,30 +1,13 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import type { Channel } from "phoenix";
-import {
-  ArrowUpFromLine,
-  ChevronRight,
-  ChevronsDownUp,
-  ExternalLink,
-  Files,
-  GitCompareArrows,
-  GitPullRequest,
-  Minus,
-  MoveRight,
-  Plus,
-  RefreshCw,
-  ListFilter,
-  Search,
-  TextSearch,
-  X,
-} from "lucide-react";
+import { ArrowUpFromLine, ChevronRight, ChevronsDownUp, ExternalLink, Files, GitCompareArrows, GitPullRequest, RefreshCw, ListFilter, Search, TextSearch, X } from "lucide-react";
 import { motion } from "framer-motion";
 import { Tabs, TabItem, TabsList } from "@/components/ui/tabs";
-import { Tooltip } from "@/components/ui/tooltip";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import { useResizableWidth } from "@/hooks/use-resizable-width";
 import { spring } from "@/lib/springs";
 import { cn } from "@/lib/utils";
-import type { DiffFile, DiffResult, FileList, FileStatus, PushResult, SearchOptions } from "@/contracts";
+import type { DiffFile, DiffResult, FileList, SearchOptions, Thread } from "@/contracts";
 import { useContentSearch } from "@/hooks/use-search";
 import { fileIcon } from "@/lib/file-icons";
 import { searchPaths } from "@/lib/fuzzy";
@@ -32,60 +15,11 @@ import { GlobFields, MatchText, SearchField, summarize } from "./search-ui";
 import { Marked } from "./quick-open";
 import { ancestors, buildTree, flattenTree, TreeRows, type Row } from "./file-tree";
 import { Counts } from "./diff-view";
+import { ScmTab, type PushOutcome } from "./scm-tab";
 import { PANEL } from "./panel";
+import { IconButton, splitPath, STATUS, StatusBox, Toolbar } from "./panel-bits";
 
 export type PanelTab = "files" | "changes";
-type PushOutcome = { ok: true; result: PushResult } | { ok: false; error: string };
-
-// ── bits ────────────────────────────────────────────────────────────────────
-
-const STATUS: Record<FileStatus, { label: string; text: string; box: string; glyph: "dot" | "plus" | "minus" | "arrow" }> = {
-  modified: { label: "Modified", text: "text-amber-600 dark:text-amber-400", box: "border-amber-500/70 text-amber-600 dark:text-amber-400", glyph: "dot" },
-  added: { label: "Added", text: "text-green-600 dark:text-green-400", box: "border-green-500/70 text-green-600 dark:text-green-400", glyph: "plus" },
-  untracked: { label: "Untracked", text: "text-green-600 dark:text-green-400", box: "border-green-500/70 text-green-600 dark:text-green-400", glyph: "plus" },
-  deleted: { label: "Deleted", text: "text-red-600 dark:text-red-400 line-through", box: "border-red-500/70 text-red-600 dark:text-red-400", glyph: "minus" },
-  renamed: { label: "Renamed", text: "text-blue-600 dark:text-blue-400", box: "border-blue-500/70 text-blue-600 dark:text-blue-400", glyph: "arrow" },
-  copied: { label: "Copied", text: "text-blue-600 dark:text-blue-400", box: "border-blue-500/70 text-blue-600 dark:text-blue-400", glyph: "plus" },
-};
-
-function StatusBox({ status }: { status: FileStatus }) {
-  const s = STATUS[status];
-  return (
-    <span title={s.label} className={cn("flex size-3.5 shrink-0 items-center justify-center rounded-[3px] border", s.box)}>
-      {s.glyph === "dot" && <span className="size-1.5 rounded-full bg-current" />}
-      {s.glyph === "plus" && <Plus size={10} strokeWidth={2.5} />}
-      {s.glyph === "minus" && <Minus size={10} strokeWidth={2.5} />}
-      {s.glyph === "arrow" && <MoveRight size={10} strokeWidth={2.5} />}
-    </span>
-  );
-}
-
-function IconButton({ label, onClick, children, active }: { label: string; onClick: () => void; children: React.ReactNode; active?: boolean }) {
-  return (
-    <Tooltip content={label} side="bottom">
-      <button
-        type="button"
-        aria-label={label}
-        onClick={onClick}
-        className={cn(
-          "flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors duration-80 hover:bg-hover hover:text-foreground focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)] [&_svg]:size-3.5",
-          active && "bg-hover text-foreground",
-        )}
-      >
-        {children}
-      </button>
-    </Tooltip>
-  );
-}
-
-function Toolbar({ children }: { children: React.ReactNode }) {
-  return <div className="flex h-9 shrink-0 items-center gap-1 px-2">{children}</div>;
-}
-
-const splitPath = (p: string) => {
-  const i = p.lastIndexOf("/");
-  return i < 0 ? { dir: "", name: p } : { dir: p.slice(0, i), name: p.slice(i + 1) };
-};
 
 // ── Files tab ───────────────────────────────────────────────────────────────
 
@@ -374,6 +308,11 @@ function ChangesTab(props: {
   onOpen: (path: string, pin?: boolean) => void;
   onOpenInEditor: (path: string) => void;
   onPush: () => Promise<PushOutcome>;
+  thread: Thread | undefined;
+  channel: RefObject<Channel | null>;
+  message: string;
+  onMessage: (m: string) => void;
+  onScmChanged: (files?: boolean) => void;
 }) {
   const { diff, error, loading, onRefresh, selected, onOpen, onOpenInEditor, onPush } = props;
   const [open, setOpen] = useState(true);
@@ -419,94 +358,102 @@ function ChangesTab(props: {
     if (!open) return [];
     const dirs = new Set(files.flatMap((f) => ancestors(f.path)));
     const expanded = new Set([...dirs].filter((d) => !collapsed.has(d)));
-    return flattenTree(buildTree(files.map((f) => f.path)), expanded, (row) =>
-      row.kind === "file" ? fileRow(byPath.get(row.path)!, row.depth, row.name) : row,
-    );
+    return flattenTree(buildTree(files.map((f) => f.path)), expanded, (row) => (row.kind === "file" ? fileRow(byPath.get(row.path)!, row.depth, row.name) : row));
   }, [files, open, collapsed, byPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <>
-      <Toolbar>
-        <div className="min-w-0 flex-1 truncate pl-1 text-[12px] text-muted-foreground" title={diff ? `Changes against ${diff.base}` : undefined}>
-          {diff ? (
-            <>
-              vs <span className="font-mono text-foreground">{diff.base}</span>
-            </>
-          ) : (
-            "Loading…"
-          )}
-        </div>
-        <IconButton label={pushing ? "Pushing…" : "Push branch (git push -u origin)"} onClick={async () => {
-          if (pushing) return;
-          setPushing(true);
-          setPushed(await onPush());
-          setPushing(false);
-        }}>
-          <ArrowUpFromLine className={cn(pushing && "animate-pulse")} />
-        </IconButton>
-        <IconButton label="Refresh" onClick={onRefresh}>
-          <RefreshCw className={cn(loading && "animate-spin")} />
-        </IconButton>
-      </Toolbar>
-
-      {pushed && (
-        <div className={cn("mx-2 mb-1 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px]", pushed.ok ? "bg-muted text-muted-foreground" : "bg-destructive-light text-destructive")}>
-          {pushed.ok ? (
-            <>
-              <span className="min-w-0 flex-1 truncate">
-                Pushed <span className="font-mono text-foreground">{pushed.result.branch}</span>
-              </span>
-              {pushed.result.pr_url && (
-                <a href={pushed.result.pr_url} target="_blank" rel="noreferrer" className="flex shrink-0 items-center gap-1 font-medium text-foreground hover:underline">
-                  <GitPullRequest className="size-3.5" /> Open PR
-                </a>
+    <ScmTab
+      thread={props.thread}
+      channel={props.channel}
+      trigger={diff}
+      message={props.message}
+      onMessage={props.onMessage}
+      selected={selected}
+      onOpen={onOpen}
+      onOpenInEditor={onOpenInEditor}
+      onPush={onPush}
+      onChanged={props.onScmChanged}
+      toolbar={
+        <>
+          <Toolbar>
+            <div className="min-w-0 flex-1 truncate pl-1 text-[12px] text-muted-foreground" title={diff ? `Changes against ${diff.base}` : undefined}>
+              {diff ? (
+                <>
+                  vs <span className="font-mono text-foreground">{diff.base}</span>
+                </>
+              ) : (
+                "Loading…"
               )}
-            </>
-          ) : (
-            <span className="min-w-0 flex-1 whitespace-pre-wrap">{pushed.error}</span>
-          )}
-          <button type="button" aria-label="Dismiss" onClick={() => setPushed(null)} className="rounded p-0.5 hover:bg-hover">
-            <X className="size-3" />
-          </button>
-        </div>
-      )}
+            </div>
+            <IconButton
+              label={pushing ? "Pushing…" : "Push branch (git push -u origin)"}
+              onClick={async () => {
+                if (pushing) return;
+                setPushing(true);
+                setPushed(await onPush());
+                setPushing(false);
+              }}
+            >
+              <ArrowUpFromLine className={cn(pushing && "animate-pulse")} />
+            </IconButton>
+            <IconButton label="Refresh" onClick={onRefresh}>
+              <RefreshCw className={cn(loading && "animate-spin")} />
+            </IconButton>
+          </Toolbar>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
-        {error && <div className="m-2 rounded-lg bg-destructive-light px-3 py-2 text-[12px] text-destructive">{error}</div>}
-        {diff && files.length === 0 && !error && <div className="px-2 py-10 text-center text-[12px] text-muted-foreground">No changes yet.</div>}
-        {files.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setOpen(!open)}
-            className="flex h-7 w-full items-center gap-1.5 rounded-md px-1.5 text-[13px] font-medium hover:bg-hover"
-            aria-expanded={open}
-          >
-            <motion.span className="inline-flex text-muted-foreground" animate={{ rotate: open ? 90 : 0 }} transition={spring.fast}>
-              <ChevronRight size={14} strokeWidth={1.5} />
-            </motion.span>
-            Changes
-            <span className="text-[12px] font-normal text-muted-foreground tabular-nums">{files.length}</span>
-            <Counts {...totals} className="ml-auto text-[11px] font-normal" />
-          </button>
-        )}
-        <TreeRows
-          label="Changed files"
-          rows={rows}
-          selected={selected}
-          onActivate={(row) => {
-            if (row.kind === "file") onOpen(row.path);
-            else if (row.kind === "dir")
-              setCollapsed((c) => {
-                const n = new Set(c);
-                if (n.has(row.path)) n.delete(row.path);
-                else n.add(row.path);
-                return n;
-              });
-          }}
-          onDoubleActivate={(row) => row.kind === "file" && onOpen(row.path, true)}
-        />
-      </div>
-    </>
+          {pushed && (
+            <div className={cn("mx-2 mb-1 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px]", pushed.ok ? "bg-muted text-muted-foreground" : "bg-destructive-light text-destructive")}>
+              {pushed.ok ? (
+                <>
+                  <span className="min-w-0 flex-1 truncate">
+                    Pushed <span className="font-mono text-foreground">{pushed.result.branch}</span>
+                  </span>
+                  {pushed.result.pr_url && (
+                    <a href={pushed.result.pr_url} target="_blank" rel="noreferrer" className="flex shrink-0 items-center gap-1 font-medium text-foreground hover:underline">
+                      <GitPullRequest className="size-3.5" /> Open PR
+                    </a>
+                  )}
+                </>
+              ) : (
+                <span className="min-w-0 flex-1 whitespace-pre-wrap">{pushed.error}</span>
+              )}
+              <button type="button" aria-label="Dismiss" onClick={() => setPushed(null)} className="rounded p-0.5 hover:bg-hover">
+                <X className="size-3" />
+              </button>
+            </div>
+          )}
+        </>
+      }
+    >
+      {error && <div className="m-2 rounded-lg bg-destructive-light px-3 py-2 text-[12px] text-destructive">{error}</div>}
+      {diff && files.length === 0 && !error && <div className="px-2 py-3 text-[12px] text-muted-foreground">Nothing differs from the base yet.</div>}
+      {files.length > 0 && (
+        <button type="button" onClick={() => setOpen(!open)} className="flex h-7 w-full items-center gap-1.5 rounded-md px-1.5 text-[13px] font-medium hover:bg-hover" aria-expanded={open}>
+          <motion.span className="inline-flex text-muted-foreground" animate={{ rotate: open ? 90 : 0 }} transition={spring.fast}>
+            <ChevronRight size={14} strokeWidth={1.5} />
+          </motion.span>
+          Branch changes
+          <span className="text-[12px] font-normal text-muted-foreground tabular-nums">{files.length}</span>
+          <Counts {...totals} className="ml-auto text-[11px] font-normal" />
+        </button>
+      )}
+      <TreeRows
+        label="Changed files"
+        rows={rows}
+        selected={selected}
+        onActivate={(row) => {
+          if (row.kind === "file") onOpen(row.path);
+          else if (row.kind === "dir")
+            setCollapsed((c) => {
+              const n = new Set(c);
+              if (n.has(row.path)) n.delete(row.path);
+              else n.add(row.path);
+              return n;
+            });
+        }}
+        onDoubleActivate={(row) => row.kind === "file" && onOpen(row.path, true)}
+      />
+    </ScmTab>
   );
 }
 
@@ -531,8 +478,13 @@ export function SidePanel(props: {
   channel: RefObject<Channel | null>;
   onOpenInEditor: (path: string) => void;
   onPush: () => Promise<PushOutcome>;
+  thread: Thread | undefined;
+  /** the index or the files changed: refresh the diff, and the file list when `files` */
+  onScmChanged: (files?: boolean) => void;
 }) {
   const { tab, onTab, files, diff } = props;
+  // the commit message outlives the tab
+  const [message, setMessage] = useState("");
   const { width, dragging, onMouseDown } = useResizableWidth("wb.panelWidth", 300, 220, 560, "left");
   const changes = useMemo(() => new Map((diff?.files ?? []).map((f) => [f.path, f])), [diff]);
   const count = diff?.files.length ?? 0;
@@ -546,7 +498,14 @@ export function SidePanel(props: {
         <Tabs value={tab} onValueChange={(v) => onTab(v as PanelTab)} size="compact" className="w-full">
           <TabsList className="flex w-full">
             <TabItem value="files" icon={Files} label="Files" iconOnly={iconOnly} className="min-w-0 flex-1 justify-center" />
-            <TabItem value="changes" icon={GitCompareArrows} label={iconOnly && count ? `Changes, ${count} file${count === 1 ? "" : "s"}` : "Changes"} badge={count || undefined} iconOnly={iconOnly} className="min-w-0 flex-1 justify-center" />
+            <TabItem
+              value="changes"
+              icon={GitCompareArrows}
+              label={iconOnly && count ? `Changes, ${count} file${count === 1 ? "" : "s"}` : "Changes"}
+              badge={count || undefined}
+              iconOnly={iconOnly}
+              className="min-w-0 flex-1 justify-center"
+            />
           </TabsList>
         </Tabs>
       </div>
@@ -575,6 +534,11 @@ export function SidePanel(props: {
           onOpen={props.onOpenChange}
           onOpenInEditor={props.onOpenInEditor}
           onPush={props.onPush}
+          thread={props.thread}
+          channel={props.channel}
+          message={message}
+          onMessage={setMessage}
+          onScmChanged={props.onScmChanged}
         />
       )}
     </aside>

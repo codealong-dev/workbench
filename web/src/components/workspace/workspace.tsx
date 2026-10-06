@@ -67,6 +67,7 @@ const PANEL_KEY = "wb.panel";
 const readPanel = (): PanelTab | null => {
   const v = localStorage.getItem(PANEL_KEY);
   if (v === "files" || v === "changes") return v;
+  if (v === "scm") return "changes";
   return v === null && window.innerWidth >= 1280 ? "changes" : null;
 };
 
@@ -543,6 +544,11 @@ export function WorkspaceView({
               }}
               onOpenInEditor={(path) => void openIn(preferredEditor(), path)}
               onPush={onPush}
+              thread={root}
+              onScmChanged={(changedFiles) => {
+                void refreshDiff();
+                if (changedFiles && files.list) void files.refresh();
+              }}
             />
           )}
         </div>

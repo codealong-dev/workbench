@@ -224,7 +224,14 @@ defmodule WorkbenchWeb.ThreadChannel do
     end
   end
 
-  def handle_in("commit.suggest", _params, socket) do
+  # Source control: `scm.status` -> {staged, unstaged}; `scm.stage`, `scm.unstage` and
+  # `scm.discard` take `paths` (all when left out) and reply with the new status.
+  def handle_in("scm.status", _params, socket), do: scm(socket, fn thread, _paths -> Workbench.Commit.changes(thread) end, nil)
+  def handle_in("scm.stage", params, socket), do: scm(socket, &Workbench.Commit.stage/2, params["paths"])
+  def handle_in("scm.unstage", params, socket), do: scm(socket, &Workbench.Commit.unstage/2, params["paths"])
+  def handle_in("scm.discard", params, socket), do: scm(socket, &Workbench.Commit.discard/2, params["paths"])
+
+  def handle_in("commit.suggest", params, socket) do
     case Threads.get(socket.assigns.thread_id) do
       nil ->
         {:reply, {:error, %{reason: "not_found"}}, socket}
@@ -234,7 +241,7 @@ defmodule WorkbenchWeb.ThreadChannel do
 
         {:ok, _} =
           Task.Supervisor.start_child(Workbench.TaskSupervisor, fn ->
-            case Workbench.Commit.suggest(thread) do
+            case Workbench.Commit.suggest(thread, staged: params["staged"] == true) do
               {:ok, title} -> reply(ref, {:ok, %{title: title}})
               {:error, reason} -> reply(ref, {:error, %{reason: H.reason(reason)}})
             end
@@ -244,9 +251,9 @@ defmodule WorkbenchWeb.ThreadChannel do
     end
   end
 
-  def handle_in("commit", %{"title" => title}, socket) do
+  def handle_in("commit", %{"title" => title} = params, socket) do
     with %{} = thread <- Threads.get(socket.assigns.thread_id),
-         {:ok, done} <- Workbench.Commit.commit(thread, title) do
+         {:ok, done} <- Workbench.Commit.commit(thread, title, staged: params["staged"] == true) do
       {:reply, {:ok, done}, socket}
     else
       nil -> {:reply, {:error, %{reason: "not_found"}}, socket}
@@ -324,4 +331,6 @@ defmodule WorkbenchWeb.ThreadChannel do
 
   defp result(:ok, socket), do: {:reply, :ok, socket}
   defp result({:error, reason}, socket), do: {:reply, {:error, %{reason: H.reason(reason)}}, socket}
+
+  defp scm(socket, op, paths), do: with_thread(socket, &op.(&1, paths))
 end

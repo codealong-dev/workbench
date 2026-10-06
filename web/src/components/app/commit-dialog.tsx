@@ -18,9 +18,9 @@ type PushAction = "push" | "push-pr";
 const PENDING = "pending";
 
 /** The model that will write the title, as Settings → Commit has it. */
-function useCommitModel(thread: Thread) {
-  const saved = useStore((s) => s.settings?.commit?.models[thread.provider]);
-  return saved ?? COMMIT_DEFAULT_MODELS[thread.provider] ?? null;
+export function useCommitModel(thread: Thread | undefined) {
+  const saved = useStore((s) => (thread ? s.settings?.commit?.models[thread.provider] : undefined));
+  return saved ?? (thread ? COMMIT_DEFAULT_MODELS[thread.provider] : null) ?? null;
 }
 
 /**

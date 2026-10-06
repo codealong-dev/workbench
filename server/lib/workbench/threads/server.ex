@@ -19,7 +19,7 @@ defmodule Workbench.Threads.Server do
   use GenServer, restart: :transient
   require Logger
 
-  alias Workbench.{Items, Provider, Repo, Threads, Uploads}
+  alias Workbench.{Activity, Items, Provider, Repo, Threads, Uploads}
   alias Workbench.Threads.Thread
 
   @busy ~w(running awaiting_approval)
@@ -386,7 +386,7 @@ defmodule Workbench.Threads.Server do
   end
 
   defp emit(st, %{"type" => "turn.started"} = ev) do
-    %{st | turn_id: ev["turn_id"]} |> broadcast(ev) |> set_status("running")
+    %{st | turn_id: ev["turn_id"]} |> set_activity("Thinking…") |> broadcast(ev) |> set_status("running")
   end
 
   # not part of the conversation: cached and handed to whoever asked
@@ -413,6 +413,7 @@ defmodule Workbench.Threads.Server do
     st = %{st | live: Map.delete(st.live, item["id"])} |> flush()
     {env, st} = stamp(st, ev)
     Items.put(st.thread.id, env["seq"], item)
+    st = if item["kind"] == "assistant_message", do: set_activity(st, Activity.message(item["text"])), else: st
     publish(st, env)
   end
 
@@ -430,7 +431,10 @@ defmodule Workbench.Threads.Server do
     st = flush(st)
     {env, st} = stamp(st, ev)
     Items.put(st.thread.id, env["seq"], item)
-    publish(%{st | tools: Map.put(st.tools, item["id"], item)}, env)
+
+    %{st | tools: Map.put(st.tools, item["id"], item)}
+    |> set_activity(Activity.tool(item["name"], item["input"]))
+    |> publish(env)
   end
 
   defp emit(st, %{"type" => "tool.completed"} = ev) do
@@ -459,7 +463,7 @@ defmodule Workbench.Threads.Server do
 
   defp emit(st, %{"type" => "approval.requested", "request_id" => rid} = ev) do
     st = %{st | pending: Map.put(st.pending, rid, ev)}
-    st |> broadcast(ev) |> set_status("awaiting_approval")
+    st |> set_activity(Activity.approval(ev["tool"], ev["input"])) |> broadcast(ev) |> set_status("awaiting_approval")
   end
 
   # The server emits approval.resolved itself when the user answers; a
@@ -568,6 +572,16 @@ defmodule Workbench.Threads.Server do
 
   defp cancel_pending(st) do
     Enum.reduce(Map.keys(st.pending), st, &resolve(&2, &1, "cancelled"))
+  end
+
+  # what the sidebar says the agent is doing; only a change is stored and sent
+  defp set_activity(st, text) when text in [nil, ""], do: st
+  defp set_activity(%{thread: %{activity: text}} = st, text), do: st
+
+  defp set_activity(st, text) do
+    thread = st.thread |> Ecto.Changeset.change(activity: text) |> Repo.update!()
+    Threads.broadcast_lobby({:thread_activity, thread.id, text})
+    %{st | thread: thread}
   end
 
   defp set_status(%{status: s} = st, s), do: st

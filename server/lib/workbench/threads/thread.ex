@@ -22,6 +22,8 @@ defmodule Workbench.Threads.Thread do
     field :model, :string
     field :effort, :string
     field :status, :string, default: "idle"
+    # one line on what the agent is doing or last said (Workbench.Activity)
+    field :activity, :string
     # set on a workspace opened to review a GitHub pull request
     field :pr_number, :integer
     field :pr_url, :string
@@ -78,6 +80,7 @@ defmodule Workbench.Threads.Thread do
       :model,
       :effort,
       :status,
+      :activity,
       :pr_number,
       :pr_url,
       :message_count,

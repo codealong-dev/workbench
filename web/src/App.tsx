@@ -69,6 +69,7 @@ export default function App() {
     setSelectedContext(true);
   }, []);
   const current = threads.find((t) => t.id === selected);
+  useEffect(() => useStore.getState().setViewing(selected), [selected]);
   // a worktree is one workspace, whichever of its sessions is picked
   const rootId = current ? (current.parent_id ?? current.id) : null;
 

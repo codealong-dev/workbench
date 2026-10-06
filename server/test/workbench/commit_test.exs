@@ -91,4 +91,86 @@ defmodule Workbench.CommitTest do
     assert upstream == "origin/#{t.branch}"
     assert {:ok, %{commits: [%{unpushed: false} | _]}} = Commit.graph(t)
   end
+
+  describe "source control" do
+    defp paths(files), do: files |> Enum.map(&{&1.path, &1.status}) |> Enum.sort()
+
+    test "changes splits the index from the disk, and a half-staged file is in both", %{t: t} do
+      edit(t, "a.txt", "one\ntwo\n")
+      edit(t, "new.txt", "n\n")
+      git!(t.worktree_path, ["add", "a.txt"])
+      edit(t, "a.txt", "one\ntwo\nthree\n")
+
+      assert {:ok, %{staged: staged, unstaged: unstaged}} = Commit.changes(t)
+      assert paths(staged) == [{"a.txt", "modified"}]
+      assert paths(unstaged) == [{"a.txt", "modified"}, {"new.txt", "untracked"}]
+    end
+
+    test "stage and unstage one file or all of them", %{t: t} do
+      edit(t, "a.txt", "changed\n")
+      edit(t, "new.txt", "n\n")
+
+      assert {:ok, %{staged: [%{path: "new.txt", status: "added"}], unstaged: [%{path: "a.txt"}]}} = Commit.stage(t, ["new.txt"])
+      assert {:ok, %{staged: staged, unstaged: []}} = Commit.stage(t, nil)
+      assert paths(staged) == [{"a.txt", "modified"}, {"new.txt", "added"}]
+
+      assert {:ok, %{staged: [%{path: "a.txt"}], unstaged: [%{path: "new.txt", status: "untracked"}]}} = Commit.unstage(t, ["new.txt"])
+      assert {:ok, %{staged: [], unstaged: unstaged}} = Commit.unstage(t, nil)
+      assert paths(unstaged) == [{"a.txt", "modified"}, {"new.txt", "untracked"}]
+    end
+
+    test "deleted and renamed files stage and unstage", %{t: t} do
+      File.rm!(Path.join(t.worktree_path, "a.txt"))
+      assert {:ok, %{staged: [%{path: "a.txt", status: "deleted"}], unstaged: []}} = Commit.stage(t, ["a.txt"])
+      assert {:ok, %{staged: [], unstaged: [%{path: "a.txt", status: "deleted"}]}} = Commit.unstage(t, ["a.txt"])
+
+      git!(t.worktree_path, ["checkout", "--", "a.txt"])
+      git!(t.worktree_path, ["mv", "a.txt", "b.txt"])
+      assert {:ok, %{staged: [%{path: "b.txt", old_path: "a.txt", status: "renamed"}]}} = Commit.changes(t)
+      assert {:ok, %{staged: [], unstaged: unstaged}} = Commit.unstage(t, ["b.txt"])
+      assert paths(unstaged) == [{"a.txt", "deleted"}, {"b.txt", "untracked"}]
+    end
+
+    test "discard restores tracked files, deletes untracked ones and keeps what is staged", %{t: t} do
+      edit(t, "a.txt", "staged\n")
+      git!(t.worktree_path, ["add", "a.txt"])
+      edit(t, "a.txt", "staged\nand more\n")
+      edit(t, "new.txt", "n\n")
+
+      assert {:ok, %{staged: [%{path: "a.txt"}], unstaged: []}} = Commit.discard(t, nil)
+      assert File.read!(Path.join(t.worktree_path, "a.txt")) == "staged\n"
+      refute File.exists?(Path.join(t.worktree_path, "new.txt"))
+    end
+
+    test "paths outside the worktree or that look like options are refused", %{t: t, dir: dir} do
+      File.write!(Path.join(dir, "outside.txt"), "x")
+      for op <- [&Commit.stage/2, &Commit.unstage/2, &Commit.discard/2], bad <- ["../outside.txt", "/etc/passwd", "", [1]] do
+        assert {:error, "path is outside the worktree"} = op.(t, [bad])
+      end
+
+      assert {:error, _} = Commit.stage(t, "a.txt")
+      edit(t, "-n", "x\n")
+      assert {:ok, %{staged: [%{path: "-n"}]}} = Commit.stage(t, ["-n"])
+    end
+
+    test "a staged commit leaves the other edits alone; with nothing staged it takes everything", %{t: t} do
+      edit(t, "a.txt", "changed\n")
+      edit(t, "new.txt", "n\n")
+      Commit.stage(t, ["new.txt"])
+
+      assert {:ok, %{title: "add new"}} = Commit.commit(t, "add new", staged: true)
+      assert {:ok, %{staged: [], unstaged: [%{path: "a.txt"}]}} = Commit.changes(t)
+      assert git!(t.worktree_path, ["show", "--name-only", "--format=", "HEAD"]) == "new.txt"
+
+      assert {:ok, _} = Commit.commit(t, "the rest", staged: true)
+      assert {:ok, %{staged: [], unstaged: []}} = Commit.changes(t)
+    end
+
+    test "suggest looks at the index only when something is staged", %{t: t} do
+      edit(t, "a.txt", "changed\n")
+      edit(t, "new.txt", "n\n")
+      Commit.stage(t, ["new.txt"])
+      assert {:ok, "Update new.txt"} = Commit.suggest(t, staged: true)
+    end
+  end
 end

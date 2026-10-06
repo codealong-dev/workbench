@@ -141,6 +141,17 @@ defmodule Workbench.ServerTest do
     assert [%{"status" => "done", "is_error" => true}] = Items.last(t.id) |> Enum.filter(&(&1["kind"] == "tool"))
   end
 
+  test "the thread says what the agent is doing, and what it asks for", %{dir: dir} do
+    t = create_thread(dir)
+    Threads.subscribe(t.id)
+    Threads.subscribe_lobby()
+    :ok = Threads.send_message(t.id, "please approve")
+    collect_until(type?("approval.requested"))
+    assert Threads.get(t.id).activity =~ "Needs approval: "
+    assert_received {:thread_activity, id, "Needs approval: " <> _}
+    assert id == t.id
+  end
+
   test "unknown thread id" do
     assert {:error, :not_found} = Threads.ensure_started(Ecto.UUID.generate())
   end

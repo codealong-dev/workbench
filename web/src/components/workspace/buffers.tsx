@@ -1,7 +1,9 @@
 import { createContext, lazy, Suspense, useContext, useEffect, useState, type RefObject } from "react";
 import type { Channel } from "phoenix";
 import type { DockviewPanelApi, IDockviewPanelProps } from "dockview-react";
-import { FileDiff as FileDiffIcon, FileText, FlaskConical, Sparkle, SquareTerminal, type LucideIcon } from "lucide-react";
+import { FileDiff as FileDiffIcon, FileText, SquareTerminal } from "lucide-react";
+import type { IconComponent } from "@/lib/icon-context";
+import { ClaudeIcon, PROVIDER_ICON } from "@/lib/provider-icons";
 import type { DiffResult, Editor, FileList, GuideData, TerminalInfo, Thread } from "@/contracts";
 import { useStore } from "@/store";
 import { fileIcon } from "@/lib/file-icons";
@@ -123,15 +125,9 @@ function useVisible(api: DockviewPanelApi) {
 
 // ── tab titles and icons ────────────────────────────────────────────────────
 
-const PROVIDER_ICON: Record<string, LucideIcon> = {
-  claude: Sparkle,
-  codex: SquareTerminal,
-  fake: FlaskConical,
-};
-
 export function useBufferTitle(b: Buffer): {
   title: string;
-  icon: LucideIcon;
+  icon: IconComponent;
   iconClass?: string;
   thread?: Thread;
   hint?: string;
@@ -142,7 +138,7 @@ export function useBufferTitle(b: Buffer): {
     case "chat":
       return {
         title: thread ? threadLabel(thread) : "Chat",
-        icon: PROVIDER_ICON[thread?.provider ?? "claude"] ?? Sparkle,
+        icon: PROVIDER_ICON[thread?.provider ?? "claude"] ?? ClaudeIcon,
         thread,
         hint: thread?.branch ?? undefined,
       };

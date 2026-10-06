@@ -31,6 +31,11 @@ interface Store {
   removeThread: (id: string) => void;
   upsertThread: (thread: Thread) => void;
   setThreadStatus: (id: string, status: Status) => void;
+  /** Threads that finished a turn while nobody was looking; opening one clears it. */
+  unseen: Record<string, true>;
+  viewing: string | null;
+  setViewing: (id: string | null) => void;
+  setThreadActivity: (id: string, activity: string) => void;
   setMessageCount: (id: string, count: number) => void;
   hydrate: (snap: Snapshot) => void;
   apply: (events: ThreadEvent[]) => void;
@@ -75,8 +80,27 @@ export const useStore = create<Store>((set) => ({
       return { threads, byId: ts ? { ...s.byId, [thread.id]: { ...ts, thread } } : s.byId };
     }),
 
+  unseen: {},
+  viewing: null,
+  setViewing: (id) =>
+    set((s) => {
+      if (!id || !s.unseen[id]) return { viewing: id };
+      const { [id]: _seen, ...unseen } = s.unseen;
+      return { viewing: id, unseen };
+    }),
+
   setThreadStatus: (id, status) =>
-    set((s) => ({ threads: s.threads.map((t) => (t.id === id ? { ...t, status } : t)) })),
+    set((s) => {
+      const was = s.threads.find((t) => t.id === id)?.status;
+      const finished = status === "idle" && (was === "running" || was === "awaiting_approval") && s.viewing !== id;
+      return {
+        threads: s.threads.map((t) => (t.id === id ? { ...t, status } : t)),
+        ...(finished ? { unseen: { ...s.unseen, [id]: true as const } } : {}),
+      };
+    }),
+
+  setThreadActivity: (id, activity) =>
+    set((s) => ({ threads: s.threads.map((t) => (t.id === id ? { ...t, activity } : t)) })),
 
   setMessageCount: (id, count) =>
     set((s) => ({ threads: s.threads.map((t) => (t.id === id ? { ...t, message_count: count } : t)) })),

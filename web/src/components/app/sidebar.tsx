@@ -4,7 +4,6 @@ import {
   Archive,
   ChevronRight,
   CornerDownRight,
-  FlaskConical,
   FolderPlus,
   FileText,
   GitPullRequest,
@@ -15,8 +14,6 @@ import {
   Plus,
   Settings,
   SlidersHorizontal,
-  Sparkle,
-  SquareTerminal,
   Sun,
 } from "lucide-react";
 import {
@@ -53,47 +50,60 @@ import { cn } from "@/lib/utils";
 import { lobbyChannel, push } from "@/hooks/use-channels";
 import { useEnabledLabs } from "@/lib/labs";
 import { useStore } from "@/store";
+import { ClaudeIcon, PROVIDER_ICON } from "@/lib/provider-icons";
 import type { Provider, Status, Thread } from "@/contracts";
 import { StatusDot } from "./status-dot";
 import { ArchiveDialog } from "./archive-dialog";
 
 // ── icons ───────────────────────────────────────────────────────────────────
 
-const PROVIDER_ICON: Record<Provider, IconComponent> = { claude: Sparkle, codex: SquareTerminal, fake: FlaskConical };
 const PROVIDER_NAME: Record<Provider, string> = { claude: "Claude", codex: "Codex", fake: "Fake" };
 
-// Level 1 leads with the thread's status dot, in our colours (FF's own
-// status dots are greyscale and treat "active" as "selected").
-const statusIcons = new Map<Status, IconComponent>();
-function statusIcon(status: Status): IconComponent {
-  let icon = statusIcons.get(status);
+// A thread's row leads with its status: a spinner while any agent in it works,
+// orange when one needs you, red on error, green once something finished.
+const statusIcons = new Map<string, IconComponent>();
+function statusIcon(status: Status, done: boolean): IconComponent {
+  const key = `${status}:${done}`;
+  let icon = statusIcons.get(key);
   if (!icon) {
     icon = ({ size = 16 }: IconComponentProps) => (
       <span className="flex shrink-0 items-center justify-center" style={{ width: size, height: size }}>
-        <StatusDot status={status} />
+        <StatusDot status={status} done={done} className={status === "running" ? "size-3.5" : "size-2"} />
       </span>
     );
-    statusIcons.set(status, icon);
+    statusIcons.set(key, icon);
   }
   return icon;
 }
 
-// Level 2 leads with the provider, plus a small dot while it is not idle.
-const sessionIcons = new Map<string, IconComponent>();
-function sessionIcon(provider: Provider, status: Status): IconComponent {
-  const key = `${provider}:${status}`;
-  let icon = sessionIcons.get(key);
+// An agent's row leads with its own status, then who it is.
+const agentIcons = new Map<string, IconComponent>();
+function agentIcon(provider: Provider, status: Status, done: boolean): IconComponent {
+  const key = `${provider}:${status}:${done}`;
+  let icon = agentIcons.get(key);
   if (!icon) {
-    const Glyph = PROVIDER_ICON[provider] ?? Sparkle;
-    icon = (props: IconComponentProps) => (
-      <span className="relative inline-flex shrink-0">
-        <Glyph {...props} />
-        {status !== "idle" && <StatusDot status={status} className="absolute -right-0.5 -bottom-0.5 size-1.5 ring-2 ring-[var(--sidebar,var(--background))]" />}
+    const Glyph = PROVIDER_ICON[provider] ?? ClaudeIcon;
+    icon = ({ size = 16, className }: IconComponentProps) => (
+      <span className={cn("flex shrink-0 items-center gap-2", className)}>
+        <span className="flex size-3.5 shrink-0 items-center justify-center">
+          <StatusDot status={status} done={done} className={status === "running" ? "size-3.5" : "size-2"} />
+        </span>
+        <Glyph size={size} />
       </span>
     );
-    sessionIcons.set(key, icon);
+    agentIcons.set(key, icon);
   }
   return icon;
+}
+
+// green: it finished while you were elsewhere, until you open it
+const isDone = (t: Thread, unseen: Record<string, true>) => t.status === "idle" && !!unseen[t.id];
+
+/** The state of a thread and the agents in it, at a glance. */
+function rollup(threads: Thread[], unseen: Record<string, true>): { status: Status; done: boolean } {
+  const has = (s: Status) => threads.some((t) => t.status === s);
+  const status: Status = has("awaiting_approval") ? "awaiting_approval" : has("running") ? "running" : has("error") ? "error" : "idle";
+  return { status, done: threads.some((t) => isDone(t, unseen)) };
 }
 
 const THEME_ICON: Record<Theme, IconComponent> = { system: Monitor, light: Sun, dark: Moon };
@@ -177,6 +187,11 @@ function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thre
     }
   };
   const count = t.message_count ?? 0;
+  const unseen = useStore((s) => s.unseen);
+  const glance = rollup([t, ...sessions], unseen);
+  // every agent in the thread, the root's own first; a lone agent shows only while it is busy
+  const busy = t.status === "running" || t.status === "awaiting_approval";
+  const lines = hasSessions ? [t, ...sessions] : [t];
   const toggle = (e: MouseEvent) => {
     e.stopPropagation();
     onToggle();
@@ -185,7 +200,7 @@ function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thre
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
-        icon={statusIcon(t.status)}
+        icon={statusIcon(glance.status, glance.done)}
         isActive={h.selected === t.id}
         onClick={() => h.onSelect(t.id)}
         title={t.branch ? `${threadLabel(t)}\n${t.branch}` : threadLabel(t)}
@@ -252,45 +267,59 @@ function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thre
       </SidebarMenuActions>
       {error && <p role="alert" className="px-2 py-1 text-[12px] text-destructive">{error}</p>}
 
-      {hasSessions && <SidebarMenuSub open={open}>
-        {sessions.map((s) => (
-          <SessionRow key={s.id} t={s} h={h} />
-        ))}
-      </SidebarMenuSub>}
+      {(hasSessions || busy) && (
+        <SidebarMenuSub open={hasSessions ? open : busy}>
+          {lines.map((a) => (
+            <AgentRow key={a.id} t={a} isRoot={a.id === t.id} h={h} />
+          ))}
+        </SidebarMenuSub>
+      )}
     </SidebarMenuItem>
   );
 }
 
-function SessionRow({ t, h }: { t: Thread; h: RowHandlers }) {
+/** One agent in a thread: its status, who it is, and what it is doing or asking for. */
+function AgentRow({ t, isRoot, h }: { t: Thread; isRoot: boolean; h: RowHandlers }) {
   const count = t.message_count ?? 0;
+  const unseen = useStore((s) => s.unseen);
+  const asking = t.status === "awaiting_approval";
+  const working = t.status === "running";
   return (
     <SidebarMenuSubItem>
       <SidebarMenuSubButton
         href={`#/t/${t.id}`}
-        icon={sessionIcon(t.provider, t.status)}
-        isActive={h.selected === t.id}
-        title={`${threadLabel(t)} · ${PROVIDER_NAME[t.provider]}`}
+        icon={agentIcon(t.provider, t.status, isDone(t, unseen))}
+        isActive={!isRoot && h.selected === t.id}
+        title={t.activity ? `${t.activity}\n${threadLabel(t)} · ${PROVIDER_NAME[t.provider]}` : `${threadLabel(t)} · ${PROVIDER_NAME[t.provider]}`}
         onClick={(e) => {
           e.preventDefault();
           h.onSelect(t.id);
         }}
       >
-        {threadLabel(t)}
+        {working && !t.activity ? (
+          <span aria-label="Working" className="block h-2.5 w-full animate-pulse rounded-full bg-muted" />
+        ) : (
+          <span className={cn("block truncate text-[12px]", asking ? "font-medium text-orange-600 dark:text-orange-400" : "text-muted-foreground")}>
+            {t.activity || (isRoot ? "Waiting for a message" : threadLabel(t))}
+          </span>
+        )}
       </SidebarMenuSubButton>
-      {count > 0 && <SidebarMenuBadge>{count}</SidebarMenuBadge>}
-      <DropdownMenu>
-        <DropdownTrigger
-          render={
-            <SidebarMenuAction showOnHover aria-label="More options">
-              <MoreVertical />
-            </SidebarMenuAction>
-          }
-        />
-        <DropdownContent className="w-[240px] min-w-0" align="start" sideOffset={4}>
-          <MenuItem index={0} icon={Link2} label="Copy link" onSelect={() => void copy(threadUrl(t.id))} />
-          <MenuItem index={1} icon={Archive} label="Archive session…" onSelect={() => h.onArchive(t)} />
-        </DropdownContent>
-      </DropdownMenu>
+      {!isRoot && count > 0 && <SidebarMenuBadge>{count}</SidebarMenuBadge>}
+      {!isRoot && (
+        <DropdownMenu>
+          <DropdownTrigger
+            render={
+              <SidebarMenuAction showOnHover aria-label="More options">
+                <MoreVertical />
+              </SidebarMenuAction>
+            }
+          />
+          <DropdownContent className="w-[240px] min-w-0" align="start" sideOffset={4}>
+            <MenuItem index={0} icon={Link2} label="Copy link" onSelect={() => void copy(threadUrl(t.id))} />
+            <MenuItem index={1} icon={Archive} label="Archive session…" onSelect={() => h.onArchive(t)} />
+          </DropdownContent>
+        </DropdownMenu>
+      )}
     </SidebarMenuSubItem>
   );
 }
