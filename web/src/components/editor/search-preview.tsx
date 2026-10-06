@@ -2,14 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
 import { monaco, themeFor } from "@/lib/monaco";
 import { useResolvedTheme } from "@/lib/theme";
+import { useEditorOptions } from "@/lib/code-prefs";
 import type { SearchMatch } from "@/contracts";
 
 type Model = monaco.editor.ITextModel;
 
 const OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
-  fontFamily: 'Menlo, "SF Mono", SFMono-Regular, ui-monospace, Consolas, monospace',
-  fontSize: 12,
-  lineHeight: 19,
   minimap: { enabled: false },
   scrollBeyondLastLine: false,
   automaticLayout: true,
@@ -25,6 +23,7 @@ const OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
 /** A read-only look at a file, scrolled to `line`, with the search's matches marked. Models live as long as the preview. */
 export default function SearchPreview({ path, text, line, matches }: { path: string; text: string; line?: number; matches: SearchMatch[] }) {
   const mode = useResolvedTheme();
+  const options = useEditorOptions(OPTIONS);
   const [ed, setEd] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
   const models = useRef(new Map<string, Model>());
 
@@ -68,5 +67,5 @@ export default function SearchPreview({ path, text, line, matches }: { path: str
     return () => decorations.clear();
   }, [ed, path, text, line, matches]);
 
-  return <Editor theme={themeFor(mode)} keepCurrentModel options={OPTIONS} onMount={setEd} />;
+  return <Editor theme={themeFor(mode)} keepCurrentModel options={options} onMount={setEd} />;
 }

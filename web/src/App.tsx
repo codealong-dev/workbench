@@ -10,6 +10,7 @@ import { AgentMenu } from "@/components/app/agent-menu";
 import { AddProjectDialog } from "@/components/app/add-project-dialog";
 import { SettingsSidebar } from "@/components/settings/settings-sidebar";
 import { PrSidebar, prKey } from "@/components/app/pr-sidebar";
+import { AutomationsSidebar } from "@/components/app/automations-sidebar";
 import { SettingsView } from "@/components/settings/settings-view";
 import { DEFAULT_SECTION, isSection, type SectionId } from "@/components/settings/sections";
 import { useLobby } from "@/hooks/use-channels";
@@ -27,9 +28,12 @@ const settingsFromHash = (): SectionId | null => {
 };
 
 // what the sidebar lists, kept per browser
-type SidebarView = "threads" | "prs";
+type SidebarView = "threads" | "prs" | "automations";
 const SIDEBAR_VIEW_KEY = "wb.sidebar";
-const readSidebarView = (): SidebarView => (localStorage.getItem(SIDEBAR_VIEW_KEY) === "prs" ? "prs" : "threads");
+const readSidebarView = (): SidebarView => {
+  const v = localStorage.getItem(SIDEBAR_VIEW_KEY);
+  return v === "prs" || v === "automations" ? v : "threads";
+};
 
 const typing = (e: KeyboardEvent) => {
   const el = e.target as HTMLElement | null;
@@ -133,6 +137,8 @@ export default function App() {
             onOpenThread={(t) => select(t.id)}
             onBack={() => setSidebarView("threads")}
           />
+        ) : sidebarView === "automations" ? (
+          <AutomationsSidebar selectedRoot={rootId} onOpenThread={(t) => select(t.id)} onBack={() => setSidebarView("threads")} />
         ) : (
           <AppSidebar
             selected={selected}
@@ -144,6 +150,7 @@ export default function App() {
             onAddProject={() => setAddProject(true)}
             onSettings={() => openSettings()}
             onPullRequests={() => setSidebarView("prs")}
+            onAutomations={() => setSidebarView("automations")}
           />
         )}
         {/* no card of its own: the thread's panes are the cards (see panel.ts) */}

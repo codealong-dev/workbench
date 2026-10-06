@@ -252,7 +252,7 @@ defmodule Workbench.CodexProviderTest do
     end
 
     test "mode changes apply to the next turn", %{dir: dir} do
-      t = create_thread(dir, %{provider: "codex"})
+      t = create_thread(dir, %{provider: "codex", mode: "default"})
       Threads.subscribe(t.id)
       :ok = Threads.send_message(t.id, "policy")
       events = collect_until(type?("turn.completed"))

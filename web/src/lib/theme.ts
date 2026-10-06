@@ -34,8 +34,6 @@ export function setTheme(theme: Theme) {
   applyTheme(theme);
 }
 
-export const nextTheme = (t: Theme): Theme => (t === "system" ? "light" : t === "light" ? "dark" : "system");
-
 /** Follow OS changes while on "system". */
 export function watchSystemTheme() {
   const m = media();

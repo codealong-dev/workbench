@@ -12,10 +12,11 @@ defmodule WorkbenchWeb.ChannelsTest do
 
   test "lobby creates a thread; thread channel streams a turn", %{dir: dir} do
     {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
-    {:ok, %{threads: []}, lobby} = subscribe_and_join(socket, "lobby", %{})
+    {:ok, %{threads: [], automations: []}, lobby} = subscribe_and_join(socket, "lobby", %{})
 
     ref = push(lobby, "thread.create", %{"provider" => "fake", "cwd" => dir, "title" => "t"})
-    assert_reply ref, :ok, %{thread: %{id: id, status: "idle"}}
+    # permissions are bypassed unless asked otherwise
+    assert_reply ref, :ok, %{thread: %{id: id, status: "idle", mode: "bypassPermissions"}}
     assert_push "thread.upserted", %{id: ^id}
     # once: PubSub topics must not double up with the channel's own topic
     refute_push "thread.upserted", %{id: ^id}, 100
@@ -314,5 +315,27 @@ defmodule WorkbenchWeb.ChannelsTest do
 
     ref = push(chan, "commit.status", %{})
     assert_reply ref, :ok, %{status: %{uncommitted: [], unpushed: 0}, graph: %{commits: [%{subject: "Add b", unpushed: false} | _]}}, 5_000
+  end
+
+  test "lobby saves, runs and deletes automations", %{dir: dir} do
+    {:ok, p} = Workbench.Projects.add(git_repo(dir))
+    {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
+    {:ok, _, lobby} = subscribe_and_join(socket, "lobby", %{})
+
+    ref = push(lobby, "automation.save", %{"project_id" => p.id, "name" => "Audit", "provider" => "fake", "prompt" => "Go.", "schedule" => "0 3 * * *"})
+    assert_reply ref, :ok, %{automation: %{id: id, enabled: true, next_run_at: %DateTime{}, runs: []}}
+    assert_push "automation.upserted", %{id: ^id}
+
+    ref = push(lobby, "automation.save", %{"id" => id, "schedule" => "nightly"})
+    assert_reply ref, :error, %{reason: "schedule needs five fields" <> _}
+
+    ref = push(lobby, "automation.run", %{"id" => id})
+    assert_reply ref, :ok, %{run: %{status: "started", thread_id: tid}}, 5_000
+    assert_push "thread.upserted", %{id: ^tid, automation_id: ^id, mode: "bypassPermissions"}
+    assert_push "automation.upserted", %{id: ^id, runs: [%{thread_id: ^tid}]}
+
+    ref = push(lobby, "automation.delete", %{"id" => id})
+    assert_reply ref, :ok
+    assert_push "automation.deleted", %{id: ^id}
   end
 end

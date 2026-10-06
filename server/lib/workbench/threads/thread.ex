@@ -18,7 +18,7 @@ defmodule Workbench.Threads.Thread do
     field :base_ref, :string
     field :worktree_path, :string
     field :session_id, :string
-    field :mode, :string, default: "default"
+    field :mode, :string, default: "bypassPermissions"
     field :model, :string
     field :effort, :string
     field :status, :string, default: "idle"
@@ -27,6 +27,8 @@ defmodule Workbench.Threads.Thread do
     # set on a workspace opened to review a GitHub pull request
     field :pr_number, :integer
     field :pr_url, :string
+    # set on a thread an automation made (Workbench.Automations)
+    field :automation_id, :binary_id
     field :archived_at, :utc_datetime_usec
     # user messages sent, filled in by `Threads.list/0`
     field :message_count, :integer, virtual: true
@@ -51,7 +53,8 @@ defmodule Workbench.Threads.Thread do
       :model,
       :effort,
       :pr_number,
-      :pr_url
+      :pr_url,
+      :automation_id
     ])
     |> validate_required([:provider, :worktree_path])
     |> validate_inclusion(:provider, @providers)
@@ -83,6 +86,7 @@ defmodule Workbench.Threads.Thread do
       :activity,
       :pr_number,
       :pr_url,
+      :automation_id,
       :message_count,
       :archived_at,
       :inserted_at,

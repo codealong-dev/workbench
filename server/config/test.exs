@@ -12,7 +12,7 @@ config :workbench, WorkbenchWeb.Endpoint,
   secret_key_base: "test-only-secret-key-base-test-only-secret-key-base-test-only-secret",
   server: false
 
-config :workbench, token: "test-token", flush_ms: 5, migrate_on_boot: false, login_path: false
+config :workbench, token: "test-token", flush_ms: 5, migrate_on_boot: false, login_path: false, automations: false
 
 config :logger, level: :warning
 config :phoenix, :plug_init_mode, :runtime

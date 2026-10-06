@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Channel } from "phoenix";
 import { socket } from "@/socket";
 import { useStore } from "@/store";
-import type { HostInfo, ModelOption, PlanUsage, Project, Settings, Snapshot, Thread, ThreadEvent } from "@/contracts";
+import type { Automation, HostInfo, ModelOption, PlanUsage, Project, Settings, Snapshot, Thread, ThreadEvent } from "@/contracts";
 
 type Reply = { ok: true; payload?: unknown } | { ok: false; reason: string; payload?: unknown };
 
@@ -36,14 +36,17 @@ export function useLobby() {
     ch.on("thread.messages", ({ id, count }) => useStore.getState().setMessageCount(id, count));
     ch.on("thread.archived", ({ id }) => removeThread(id));
     ch.on("settings.updated", (s: Settings) => useStore.getState().setSettings(s));
+    ch.on("automation.upserted", (a: Automation) => useStore.getState().upsertAutomation(a));
+    ch.on("automation.deleted", ({ id }) => useStore.getState().removeAutomation(id));
     ch.onClose(() => setConnected(false));
     ch.onError(() => setConnected(false));
-    ch.join().receive("ok", (reply: { host: HostInfo; projects: Project[]; threads: Thread[]; settings: Settings; models: Record<string, ModelOption[]> }) => {
+    ch.join().receive("ok", (reply: { host: HostInfo; projects: Project[]; threads: Thread[]; settings: Settings; models: Record<string, ModelOption[]>; automations: Automation[] }) => {
       const s = useStore.getState();
       s.setHost(reply.host);
       s.setSettings(reply.settings);
       for (const [provider, models] of Object.entries(reply.models ?? {})) if (!s.models[provider]) s.setModels(provider, models);
       setLobby(reply.projects, reply.threads);
+      s.setAutomations(reply.automations ?? []);
       setConnected(true);
     });
   }, []);

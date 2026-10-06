@@ -21,7 +21,7 @@ export function ReviewSettingsPage() {
   const settings = useStore((s) => s.settings);
   const labs = useEnabledLabs();
   const saved = settings?.review ?? null;
-  const [draft, setDraft] = useState<ReviewSettings>(() => saved ?? { provider: labs[0]?.id ?? "claude", model: null, effort: null, mode: "default", prompt: DEFAULT_REVIEW_PROMPT });
+  const [draft, setDraft] = useState<ReviewSettings>(() => saved ?? { provider: labs[0]?.id ?? "claude", model: null, effort: null, mode: "bypassPermissions", prompt: DEFAULT_REVIEW_PROMPT });
   const [state, setState] = useState<{ saving: boolean; error: string | null; savedAt: number | null }>({ saving: false, error: null, savedAt: null });
   const { models, loading } = useLabModels(draft.provider);
 

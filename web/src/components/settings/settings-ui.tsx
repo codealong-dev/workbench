@@ -1,4 +1,6 @@
 import { createContext, useContext, useRef, type ReactNode } from "react";
+import { Minus, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { FluidHoverHighlight } from "@/components/ui/fluid-hover-highlight";
 import { useFluidHover, useRegisterFluidHoverItem } from "@/hooks/use-fluid-hover";
 import type { IconComponent } from "@/lib/icon-context";
@@ -115,4 +117,23 @@ export function SettingsRow({ index, icon: Icon, title, description, trailing, o
 
 export function Kbd({ children }: { children: ReactNode }) {
   return <kbd className="rounded-md bg-surface-1 px-1.5 py-0.5 font-sans text-[11px] text-muted-foreground shadow-surface-1">{children}</kbd>;
+}
+
+/** − value + for a number setting, clamped to [min, max]. */
+export function Stepper({ value, onChange, min, max, step = 1, unit = "", label }: { value: number; onChange: (v: number) => void; min: number; max: number; step?: number; unit?: string; label: string }) {
+  const set = (v: number) => onChange(Math.min(max, Math.max(min, Math.round(v * 100) / 100)));
+  return (
+    <span role="group" aria-label={label} className="flex items-center gap-0.5">
+      <Button size="icon-compact" variant="ghost" aria-label={`Decrease ${label.toLowerCase()}`} disabled={value <= min} onClick={() => set(value - step)}>
+        <Minus />
+      </Button>
+      <span aria-live="polite" className="min-w-11 text-center font-mono text-[12px] tabular-nums">
+        {value}
+        {unit}
+      </span>
+      <Button size="icon-compact" variant="ghost" aria-label={`Increase ${label.toLowerCase()}`} disabled={value >= max} onClick={() => set(value + step)}>
+        <Plus />
+      </Button>
+    </span>
+  );
 }

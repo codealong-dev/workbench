@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils";
 import type { DiffFile, DiffResult, GuideData } from "@/contracts";
 import { fileIcon } from "@/lib/file-icons";
 import { useResolvedTheme } from "@/lib/theme";
+import { useCodePrefs } from "@/lib/code-prefs";
+import { diffMetrics, diffOptions } from "@/lib/diff-options";
 import { GuideView } from "./guide-view";
 
 const LAYOUT_KEY = "wb.diffStyle";
@@ -42,19 +44,15 @@ export const DiffBlock = memo(function DiffBlock(props: {
   onOpenLine?: (path: string, line?: number) => void;
 }) {
   const themeType = useResolvedTheme();
+  const prefs = useCodePrefs().diff;
+  const options = useMemo(() => diffOptions(prefs, props.diffStyle, themeType), [prefs, props.diffStyle, themeType]);
   const { onOpenLine } = props;
   return (
     <div onDoubleClick={onOpenLine && props.file.type !== "deleted" ? (e) => onOpenLine(props.file.name, clickedLine(e)) : undefined}>
     <FileDiff
       fileDiff={props.file}
-      options={{
-        diffStyle: props.diffStyle,
-        theme: { light: "light-plus", dark: "dark-plus" },
-        themeType,
-        overflow: "wrap",
-        lineDiffType: "word",
-        hunkSeparators: "line-info",
-      }}
+      options={options}
+      metrics={diffMetrics(prefs.lineHeight)}
       renderHeaderMetadata={(f) =>
         f.type !== "deleted" ? (
           <button

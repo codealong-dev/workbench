@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Approval, HostInfo, Item, LiveItem, ModelOption, PlanUsage, Project, Settings, Snapshot, Status, Thread, ThreadEvent, ToolItem } from "./contracts";
+import type { Approval, Automation, HostInfo, Item, LiveItem, ModelOption, PlanUsage, Project, Settings, Snapshot, Status, Thread, ThreadEvent, ToolItem } from "./contracts";
 
 export interface ThreadState {
   thread: Thread;
@@ -27,6 +27,11 @@ interface Store {
   models: Record<string, ModelOption[]>;
   setModels: (provider: string, models: ModelOption[]) => void;
   setLobby: (projects: Project[], threads: Thread[]) => void;
+  /** Sorted by name, as the server lists them. */
+  automations: Automation[];
+  setAutomations: (automations: Automation[]) => void;
+  upsertAutomation: (automation: Automation) => void;
+  removeAutomation: (id: string) => void;
   upsertProject: (project: Project) => void;
   removeThread: (id: string) => void;
   upsertThread: (thread: Thread) => void;
@@ -57,6 +62,14 @@ export const useStore = create<Store>((set) => ({
   setModels: (provider, models) => set((s) => ({ models: { ...s.models, [provider]: models } })),
 
   setLobby: (projects, threads) => set({ projects, threads }),
+
+  automations: [],
+  setAutomations: (automations) => set({ automations }),
+  upsertAutomation: (a) =>
+    set((s) => ({
+      automations: [...s.automations.filter((x) => x.id !== a.id), a].sort((x, y) => x.name.toLowerCase().localeCompare(y.name.toLowerCase())),
+    })),
+  removeAutomation: (id) => set((s) => ({ automations: s.automations.filter((a) => a.id !== id) })),
 
   upsertProject: (project) =>
     set((s) => ({

@@ -2,6 +2,7 @@ import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Archive,
+  CalendarClock,
   ChevronRight,
   CornerDownRight,
   FolderPlus,
@@ -9,12 +10,10 @@ import {
   GitPullRequest,
   Link2,
   Monitor,
-  Moon,
   MoreVertical,
   Plus,
   Settings,
   SlidersHorizontal,
-  Sun,
 } from "lucide-react";
 import {
   Sidebar,
@@ -28,7 +27,6 @@ import {
   SidebarMenu,
   SidebarMenuAction,
   SidebarMenuActions,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -45,7 +43,6 @@ import { SidebarSearchField } from "@/components/sidebar-app/search-field";
 import { SidebarUserFooter } from "@/components/sidebar-app/user-footer";
 import type { IconComponent, IconComponentProps } from "@/lib/icon-context";
 import { spring } from "@/lib/springs";
-import { getTheme, nextTheme, setTheme, type Theme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { lobbyChannel, push } from "@/hooks/use-channels";
 import { useEnabledLabs } from "@/lib/labs";
@@ -59,7 +56,7 @@ import { ArchiveDialog } from "./archive-dialog";
 
 const PROVIDER_NAME: Record<Provider, string> = { claude: "Claude", codex: "Codex", fake: "Fake" };
 
-// A thread's row leads with its status: a spinner while any agent in it works,
+// A thread's row leads with its status: a slow green pulse while any agent in it works,
 // orange when one needs you, red on error, green once something finished.
 const statusIcons = new Map<string, IconComponent>();
 function statusIcon(status: Status, done: boolean): IconComponent {
@@ -68,7 +65,11 @@ function statusIcon(status: Status, done: boolean): IconComponent {
   if (!icon) {
     icon = ({ size = 16 }: IconComponentProps) => (
       <span className="flex shrink-0 items-center justify-center" style={{ width: size, height: size }}>
-        <StatusDot status={status} done={done} className={status === "running" ? "size-3.5" : "size-2"} />
+        {status === "running" ? (
+          <span title="Working" className="inline-block size-2 shrink-0 rounded-full bg-green-500 animate-[pulse_2.4s_ease-in-out_infinite]" />
+        ) : (
+          <StatusDot status={status} done={done} />
+        )}
       </span>
     );
     statusIcons.set(key, icon);
@@ -88,7 +89,10 @@ function agentIcon(provider: Provider, status: Status, done: boolean): IconCompo
         <span className="flex size-3.5 shrink-0 items-center justify-center">
           <StatusDot status={status} done={done} className={status === "running" ? "size-3.5" : "size-2"} />
         </span>
-        <Glyph size={size} />
+        {/* the glyph is drawn smaller than its slot, so labels stay aligned */}
+        <span className="flex shrink-0 items-center justify-center" style={{ width: size, height: size }}>
+          <Glyph size={Math.round(size * 0.8)} />
+        </span>
       </span>
     );
     agentIcons.set(key, icon);
@@ -106,8 +110,6 @@ function rollup(threads: Thread[], unseen: Record<string, true>): { status: Stat
   return { status, done: threads.some((t) => isDone(t, unseen)) };
 }
 
-const THEME_ICON: Record<Theme, IconComponent> = { system: Monitor, light: Sun, dark: Moon };
-const THEME_LABEL: Record<Theme, string> = { system: "System theme", light: "Light theme", dark: "Dark theme" };
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -186,7 +188,6 @@ function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thre
       setCreating(false);
     }
   };
-  const count = t.message_count ?? 0;
   const unseen = useStore((s) => s.unseen);
   const glance = rollup([t, ...sessions], unseen);
   // every agent in the thread, the root's own first; a lone agent shows only while it is busy
@@ -208,6 +209,7 @@ function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thre
         aria-expanded={hasSessions ? open : undefined}
       >
         <span className="min-w-0 truncate">{threadLabel(t)}</span>
+        {t.automation_id && <CalendarClock size={12} strokeWidth={1.5} aria-label="Run by an automation" className="shrink-0 text-muted-foreground" />}
         {hasSessions && <span
           role="button"
           tabIndex={-1}
@@ -228,7 +230,6 @@ function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thre
           </motion.span>
         </span>}
       </SidebarMenuButton>
-      {count > 0 && <SidebarMenuBadge title={`${count} message${count === 1 ? "" : "s"}`}>{count}</SidebarMenuBadge>}
       <SidebarMenuActions showOnHover>
         <DropdownMenu>
           <Tooltip content={agents.length === 0 ? "Enable an agent in Settings to branch" : "Branch thread"} side="top">
@@ -280,7 +281,6 @@ function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thre
 
 /** One agent in a thread: its status, who it is, and what it is doing or asking for. */
 function AgentRow({ t, isRoot, h }: { t: Thread; isRoot: boolean; h: RowHandlers }) {
-  const count = t.message_count ?? 0;
   const unseen = useStore((s) => s.unseen);
   const asking = t.status === "awaiting_approval";
   const working = t.status === "running";
@@ -304,7 +304,6 @@ function AgentRow({ t, isRoot, h }: { t: Thread; isRoot: boolean; h: RowHandlers
           </span>
         )}
       </SidebarMenuSubButton>
-      {!isRoot && count > 0 && <SidebarMenuBadge>{count}</SidebarMenuBadge>}
       {!isRoot && (
         <DropdownMenu>
           <DropdownTrigger
@@ -415,6 +414,7 @@ export function AppSidebar(props: {
   onAddProject: () => void;
   onSettings: () => void;
   onPullRequests: () => void;
+  onAutomations: () => void;
 }) {
   const { selected, connected, onSelect, onNewThread, onAddProject, onSettings } = props;
   const projects = useStore((s) => s.projects);
@@ -423,7 +423,6 @@ export function AppSidebar(props: {
   const [query, setQuery] = useState("");
   const [filters, setFilters] = useState<Record<string, Filter>>({});
   const [archiving, setArchiving] = useState<Thread | null>(null);
-  const [theme, setThemeState] = useState<Theme>(getTheme);
   const search = useRef<HTMLInputElement>(null);
   const { setOpen, isMobile, setOpenMobile } = useSidebar();
 
@@ -485,13 +484,6 @@ export function AppSidebar(props: {
     },
   };
 
-  const cycleTheme = () => {
-    const t = nextTheme(theme);
-    setTheme(t);
-    setThemeState(t);
-  };
-  const ThemeIcon = THEME_ICON[theme];
-
   return (
     <>
       <Sidebar variant="inset">
@@ -533,6 +525,11 @@ export function AppSidebar(props: {
               <SidebarMenuItem>
                 <SidebarMenuButton icon={GitPullRequest} onClick={props.onPullRequests}>
                   Pull requests
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton icon={CalendarClock} onClick={props.onAutomations}>
+                  Automations
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
@@ -605,8 +602,7 @@ export function AppSidebar(props: {
                 <>
                   <MenuItem index={0} icon={Monitor} label={connected ? "Connected" : "Offline, reconnecting…"} disabled />
                   <MenuItem index={1} icon={FolderPlus} label="Add project" onSelect={onAddProject} />
-                  <MenuItem index={2} icon={ThemeIcon} label={`${THEME_LABEL[theme]} (click to change)`} onSelect={cycleTheme} />
-                  <MenuItem index={3} icon={Settings} label="Settings  ⌘," onSelect={onSettings} />
+                  <MenuItem index={2} icon={Settings} label="Settings  ⌘," onSelect={onSettings} />
                 </>
               }
             />

@@ -225,6 +225,9 @@ defmodule Workbench.Threads do
 
   @doc "Start a turn. `images` are attached pictures, `%{\"data\" => base64, \"mime\", \"name\"}` (see Workbench.Uploads)."
   def send_message(id, text, images \\ []) when is_binary(text) and is_list(images), do: call(id, {:send, text, images})
+
+  @doc "Send the first message once the project's setup is done (right away if there is none)."
+  def send_when_ready(id, text) when is_binary(text), do: call(id, {:send_when_ready, text})
   def interrupt(id), do: call(id, :interrupt)
   def respond(id, request_id, decision, answers \\ nil), do: call(id, {:respond, request_id, decision, answers})
   def set_mode(id, mode), do: call(id, {:set_mode, mode})

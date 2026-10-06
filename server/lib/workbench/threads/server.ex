@@ -66,6 +66,8 @@ defmodule Workbench.Threads.Server do
           tools: %{},
           # project setup commands in flight: %{cmds, env, n, current: %{io, pid, item_id, out}}
           setup: nil,
+          # a first message waiting for setup to finish (Threads.send_when_ready/2)
+          queued: nil,
           # callers waiting for the provider's model list
           model_waiters: []
         }
@@ -132,6 +134,10 @@ defmodule Workbench.Threads.Server do
   def handle_call({:send, _text, _images}, _from, %{status: s} = st) when s in @busy do
     {:reply, {:error, :busy}, st}
   end
+
+  # setup runs first, then the message goes
+  def handle_call({:send_when_ready, text}, _from, %{setup: %{}} = st), do: {:reply, :ok, %{st | queued: text}}
+  def handle_call({:send_when_ready, text}, from, st), do: handle_call({:send, text, []}, from, st)
 
   def handle_call({:send, text, images}, _from, st) do
     case attach(st.thread.id, images) do
@@ -753,7 +759,7 @@ defmodule Workbench.Threads.Server do
 
   # -- project setup commands ---------------------------------------------------
 
-  defp next_setup(%{setup: %{cmds: []}} = st), do: %{st | setup: nil} |> set_status("idle")
+  defp next_setup(%{setup: %{cmds: []}} = st), do: setup_done(st)
 
   defp next_setup(%{setup: %{cmds: [cmd | rest]} = setup} = st) do
     n = setup.n + 1
@@ -768,8 +774,7 @@ defmodule Workbench.Threads.Server do
         st
         |> emit(%{"type" => "tool.completed", "item_id" => item_id, "output" => inspect(reason), "is_error" => true, "truncated" => false})
         |> emit(%{"type" => "error", "message" => "Setup could not start `#{cmd}`: #{inspect(reason)}", "fatal" => false})
-        |> Map.put(:setup, nil)
-        |> set_status("idle")
+        |> setup_done()
     end
   end
 
@@ -795,8 +800,22 @@ defmodule Workbench.Threads.Server do
         "message" => "Setup failed (#{Workbench.Provider.Proc.describe_exit(reason)}). The worktree is ready, but later setup steps were skipped.",
         "fatal" => false
       })
-      |> Map.put(:setup, nil)
-      |> set_status("idle")
+      |> setup_done()
+    end
+  end
+
+  # a queued first message goes even if setup failed: the error is in the
+  # timeline, and the agent may well be able to sort it out
+  defp setup_done(st) do
+    st = %{st | setup: nil} |> set_status("idle")
+
+    case st.queued do
+      nil ->
+        st
+
+      text ->
+        {:reply, _, st} = send_turn(%{st | queued: nil}, text, [])
+        st
     end
   end
 

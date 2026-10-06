@@ -23,6 +23,9 @@ defmodule Workbench.Application do
       WorkbenchWeb.Endpoint
     ]
 
+    # off in tests, which call Workbench.Automations.due/1 themselves
+    children = if Application.get_env(:workbench, :automations, true), do: children ++ [Workbench.Automations.Scheduler], else: children
+
     Supervisor.start_link(children, strategy: :one_for_one, name: Workbench.Supervisor)
   end
 

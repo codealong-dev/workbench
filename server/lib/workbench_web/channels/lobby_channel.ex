@@ -17,12 +17,18 @@ defmodule WorkbenchWeb.LobbyChannel do
       GitHub through `gh`, so it can take a few seconds (see Workbench.PullRequests)
     * `pr.review` `{project_id, number, provider?}` -> `{thread}`: the workspace
       reviewing that pull request, checked out the first time
+    * `automation.save` `{id?, project_id, name, provider, prompt, schedule, enabled}`
+      -> `{automation}`: creates one without `id` (see Workbench.Automations)
+    * `automation.delete` `{id}` -> ok; its threads stay
+    * `automation.run` `{id}` -> `{run}`: runs it now, as if it were due
     * pushes: `project.upserted`, `thread.upserted`, `thread.status`,
-      `thread.messages` `{id, count}`, `thread.activity` `{id, activity}`, `thread.archived`, `settings.updated`
+      `thread.messages` `{id, count}`, `thread.activity` `{id, activity}`, `thread.archived`, `settings.updated`,
+      `automation.upserted`, `automation.deleted` `{id}`
   """
   use Phoenix.Channel
 
-  alias Workbench.{Models, Projects, PullRequests, Settings, Threads}
+  alias Workbench.{Automations, Models, Projects, PullRequests, Settings, Threads}
+  alias Workbench.Automations.{Automation, Run}
   alias Workbench.Projects.Project
   alias Workbench.Threads.Thread
   alias WorkbenchWeb.ChannelHelpers, as: H
@@ -37,7 +43,8 @@ defmodule WorkbenchWeb.LobbyChannel do
        projects: Enum.map(Projects.list(), &Project.to_json/1),
        threads: Enum.map(Threads.list(), &Thread.to_json/1),
        settings: Settings.all(),
-       models: Models.cached(Settings.providers())
+       models: Models.cached(Settings.providers()),
+       automations: Enum.map(Automations.list(), &Automation.to_json/1)
      }, socket}
   end
 
@@ -69,7 +76,7 @@ defmodule WorkbenchWeb.LobbyChannel do
         provider: params["provider"] || "claude",
         title: blank(params["title"]),
         initial_context: blank(params["initial_context"]),
-        mode: params["mode"] || "default",
+        mode: params["mode"] || "bypassPermissions",
         model: blank(params["model"]),
         effort: blank(params["effort"])
       }
@@ -96,7 +103,7 @@ defmodule WorkbenchWeb.LobbyChannel do
 
         reply =
           with prompt when is_binary(prompt) <- blank(params["prompt"]),
-               {:error, reason} <- Threads.send_message(thread.id, prompt) do
+               {:error, reason} <- Threads.send_when_ready(thread.id, prompt) do
             Map.put(reply, :send_error, H.reason(reason))
           else
             _ -> reply
@@ -164,6 +171,40 @@ defmodule WorkbenchWeb.LobbyChannel do
     {:noreply, socket}
   end
 
+  def handle_in("automation.save", params, socket) when is_map(params) do
+    attrs = Map.take(params, ~w(id project_id name provider prompt schedule enabled))
+
+    case Automations.save(attrs) do
+      {:ok, a} -> {:reply, {:ok, %{automation: Automation.to_json(a)}}, socket}
+      {:error, %Ecto.Changeset{} = cs} -> {:reply, {:error, %{reason: H.errors(cs)}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
+    end
+  end
+
+  def handle_in("automation.delete", %{"id" => id}, socket) when is_binary(id) do
+    case Automations.delete(id) do
+      :ok -> {:reply, :ok, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: H.reason(reason)}}, socket}
+    end
+  end
+
+  # from a task: making the worktree and running setup takes a while
+  def handle_in("automation.run", %{"id" => id}, socket) when is_binary(id) do
+    case Automations.get(id) do
+      nil ->
+        {:reply, {:error, %{reason: "automation not found"}}, socket}
+
+      a ->
+        ref = socket_ref(socket)
+        Task.Supervisor.start_child(Workbench.TaskSupervisor, fn ->
+          {:ok, run} = Automations.run(a)
+          reply(ref, {:ok, %{run: Run.to_json(run)}})
+        end)
+
+        {:noreply, socket}
+    end
+  end
+
   def handle_in(event, _params, socket) do
     {:reply, {:error, %{reason: "unknown or malformed message: #{event}"}}, socket}
   end
@@ -196,6 +237,16 @@ defmodule WorkbenchWeb.LobbyChannel do
 
   def handle_info({:settings, settings}, socket) do
     push(socket, "settings.updated", settings)
+    {:noreply, socket}
+  end
+
+  def handle_info({:automation_upserted, a}, socket) do
+    push(socket, "automation.upserted", Automation.to_json(a))
+    {:noreply, socket}
+  end
+
+  def handle_info({:automation_deleted, id}, socket) do
+    push(socket, "automation.deleted", %{id: id})
     {:noreply, socket}
   end
 

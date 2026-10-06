@@ -8,6 +8,7 @@ import TsWorker from "monaco-editor/language/typescript/ts.worker.js?worker";
 import JsonWorker from "monaco-editor/language/json/json.worker.js?worker";
 import CssWorker from "monaco-editor/language/css/css.worker.js?worker";
 import HtmlWorker from "monaco-editor/language/html/html.worker.js?worker";
+import { getCodePrefs, subscribeCodePrefs } from "./code-prefs";
 
 self.MonacoEnvironment = {
   getWorker(_id: string, label: string) {
@@ -25,6 +26,14 @@ loader.config({ monaco });
 // unresolved imports as errors.
 monaco.typescript.typescriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true });
 monaco.typescript.javascriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true });
+
+// Monaco caches glyph widths per font: measure again once a newly picked one has loaded.
+let font = getCodePrefs().fontFamily;
+subscribeCodePrefs(() => {
+  if (getCodePrefs().fontFamily === font) return;
+  font = getCodePrefs().fontFamily;
+  void document.fonts.ready.then(() => monaco.editor.remeasureFonts());
+});
 
 function surface(): string {
   const probe = document.createElement("div");

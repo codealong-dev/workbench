@@ -15,7 +15,7 @@ export interface SettingsItem {
 }
 
 export const SETTINGS_GROUPS: { title: string; items: SettingsItem[] }[] = [
-  { title: "General", items: [{ id: "appearance", label: "Appearance", icon: Palette, keywords: "theme dark light system colors" }] },
+  { title: "General", items: [{ id: "appearance", label: "Appearance", icon: Palette, keywords: "theme dark light system colors font size monaco editor code ligatures minimap wrap line height diff split unified whitespace cursor" }] },
   {
     title: "Agents",
     items: [

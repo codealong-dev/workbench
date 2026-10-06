@@ -49,8 +49,41 @@ export interface Thread {
   /** Set on a workspace opened to review a GitHub pull request (Workbench.PullRequests). */
   pr_number?: number | null;
   pr_url?: string | null;
+  /** Set on a thread an automation made (Workbench.Automations). */
+  automation_id?: string | null;
   /** User messages sent; only in the lobby list and `thread.messages`. */
   message_count?: number;
+  inserted_at: string;
+  updated_at: string;
+}
+
+/** One firing of an automation (Workbench.Automations.Run). */
+export interface AutomationRun {
+  id: string;
+  automation_id: string;
+  /** started: made a thread with the prompt; failed: couldn't (see error); missed: Workbench wasn't running and it was too late to catch up */
+  status: "started" | "failed" | "missed";
+  thread_id: string | null;
+  error: string | null;
+  /** when it was due; null for Run now */
+  scheduled_for: string | null;
+  inserted_at: string;
+}
+
+/** An agent run on a schedule (Workbench.Automations). */
+export interface Automation {
+  id: string;
+  project_id: string;
+  name: string;
+  provider: Provider;
+  prompt: string;
+  /** five-field cron, in the server's local time */
+  schedule: string;
+  enabled: boolean;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  /** the latest few, newest first */
+  runs: AutomationRun[];
   inserted_at: string;
   updated_at: string;
 }

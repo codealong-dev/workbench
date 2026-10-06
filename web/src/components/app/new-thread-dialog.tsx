@@ -31,7 +31,7 @@ export function NewThreadDialog(props: {
   const [step, setStep] = useState<1 | 2>(1);
   const [initialContext, setInitialContext] = useState("");
   const [provider, setProvider] = useState<Provider>("claude");
-  const [mode, setMode] = useState<Mode>("default");
+  const [mode, setMode] = useState<Mode>("bypassPermissions");
   const [isolate, setIsolate] = useState(true);
   const [branches, setBranches] = useState<string[]>([]);
   const [baseRef, setBaseRef] = useState("");

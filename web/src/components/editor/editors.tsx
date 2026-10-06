@@ -8,6 +8,7 @@ import { fetchFile } from "@/hooks/use-files";
 import { contextEditorKey, editorKey, useEditors, type Saved } from "@/lib/editor-state";
 import { useStore } from "@/store";
 import { monaco, themeFor } from "@/lib/monaco";
+import { useEditorOptions } from "@/lib/code-prefs";
 import { useResolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { preferredEditor } from "@/components/app/open-menu";
@@ -15,19 +16,16 @@ import { useWorkspace, type Reveal } from "@/components/workspace/buffers";
 
 type Model = monaco.editor.ITextModel;
 
+// Font, size, wrapping and the like come from Settings › Appearance (useEditorOptions).
 const OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
-  fontFamily: 'Menlo, "SF Mono", SFMono-Regular, ui-monospace, Consolas, monospace',
-  fontSize: 12.5,
-  lineHeight: 20,
-  minimap: { enabled: false },
   scrollBeyondLastLine: false,
   automaticLayout: true,
   renderLineHighlight: "line",
   smoothScrolling: true,
   padding: { top: 8 },
   fixedOverflowWidgets: true,
-  stickyScroll: { enabled: true },
 };
+const CONTEXT_OPTIONS = { ...OPTIONS, wordWrap: "on", ariaLabel: "Initial context editor" } as const;
 
 const fileUri = (root: string, path: string) => monaco.Uri.from({ scheme: "file", path: `/${root}/${path}` });
 const baseUri = (root: string, path: string, from?: string) => monaco.Uri.from({ scheme: "wb-base", path: `/${root}/${path}`, query: from ?? "" });
@@ -282,6 +280,7 @@ function useSaveKey(save: () => void) {
 /** The workspace's shared context page, saved in Workbench rather than the worktree. */
 export function ContextEditor() {
   const mode = useResolvedTheme();
+  const options = useEditorOptions(CONTEXT_OPTIONS);
   const f = useFileModel("initial-context.md", "context");
   const bindSave = useSaveKey(f.save);
 
@@ -303,7 +302,7 @@ export function ContextEditor() {
             path={f.model.uri.toString()}
             theme={themeFor(mode)}
             keepCurrentModel
-            options={{ ...OPTIONS, wordWrap: "on", ariaLabel: "Initial context editor" }}
+            options={options}
             onMount={(editor) => { editor.setModel(f.model); bindSave(editor); editor.focus(); }}
           />
         </div>
@@ -316,6 +315,7 @@ export function ContextEditor() {
 export function FileEditor({ path, reveal }: { path: string; reveal?: Reveal }) {
   const ws = useWorkspace();
   const mode = useResolvedTheme();
+  const options = useEditorOptions(OPTIONS);
   const f = useFileModel(path);
   const base = useBase(path);
   const bindSave = useSaveKey(f.save);
@@ -356,7 +356,7 @@ export function FileEditor({ path, reveal }: { path: string; reveal?: Reveal }) 
             path={f.model.uri.toString()}
             theme={themeFor(mode)}
             keepCurrentModel
-            options={OPTIONS}
+            options={options}
             onMount={(editor) => {
               editor.setModel(f.model);
               bindSave(editor);
@@ -377,6 +377,7 @@ export function FileDiffEditor({ path, from }: { path: string; from?: string }) 
   const bindSave = useSaveKey(f.save);
   const base = useBase(path, from);
   const [inline, setInline] = useState(() => localStorage.getItem("wb.diffInline") === "1");
+  const options = useEditorOptions(OPTIONS);
   const [empty, setEmpty] = useState<Model | null>(null);
 
   // a deleted file: diff against nothing
@@ -426,7 +427,7 @@ export function FileDiffEditor({ path, from }: { path: string; from?: string }) 
             keepCurrentModifiedModel
             theme={themeFor(mode)}
             options={{
-              ...OPTIONS,
+              ...options,
               renderSideBySide: !inline,
               useInlineViewWhenSpaceIsLimited: true,
               renderSideBySideInlineBreakpoint: 700,
