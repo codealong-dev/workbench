@@ -131,7 +131,6 @@ export function WorkspaceView({
       cancelled = true;
     };
   }, [channel, rootId]);
-  const [focusedId, setFocusedId] = useState(selectedId);
 
   // -- right explorer ---------------------------------------------------------
   const [panel, setPanelState] = useState<PanelTab | null>(readPanel);
@@ -368,7 +367,6 @@ export function WorkspaceView({
         const b = (panel?.params as Buffer | undefined) ?? null;
         setActiveBuffer(b);
         if (b?.kind === "chat") {
-          setFocusedId(b.threadId);
           onSelect(b.threadId);
         }
         if (b?.kind === "context") onSelectContext(rootId);
@@ -499,7 +497,6 @@ export function WorkspaceView({
   if (joinError) return <div className="grid flex-1 place-items-center text-[13px] text-destructive">Could not open thread: {joinError}</div>;
 
   const openFiles = (api?.panels ?? []).flatMap((p) => ((p.params as Buffer).kind === "file" ? [(p.params as Buffer & { kind: "file" }).path] : []));
-  const focused = threads.find((t) => t.id === focusedId) ?? root ?? null;
 
   return (
     <WorkspaceContext.Provider value={ws}>
@@ -555,8 +552,6 @@ export function WorkspaceView({
         {root && (
           <StatusBar
             root={root}
-            focused={focused}
-            threads={threads}
             diff={diff}
             terminals={terminals?.length ?? 0}
             connected={connected}

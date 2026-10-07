@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Approval, Automation, HostInfo, Item, LiveItem, ModelOption, PlanUsage, Project, Settings, Snapshot, Status, Thread, ThreadEvent, ToolItem } from "./contracts";
+import type { Approval, Automation, HostInfo, Item, LiveItem, ModelOption, PlanUsage, Project, Settings, Snapshot, Status, Thread, ThreadEvent, ToolItem, UsageStatus } from "./contracts";
 
 export interface ThreadState {
   thread: Thread;
@@ -19,7 +19,9 @@ interface Store {
   byId: Record<string, ThreadState>;
   /** Plan limits per provider; they belong to the account, not a thread. */
   usage: Record<string, PlanUsage | null>;
-  setUsage: (provider: string, usage: PlanUsage | null) => void;
+  usageStatus: Record<string, UsageStatus>;
+  setUsage: (provider: string, usage: PlanUsage | null, fetchedAt?: number) => void;
+  setUsageStatus: (provider: string, patch: Partial<UsageStatus>) => void;
   /** Null until the lobby is joined. */
   settings: Settings | null;
   setSettings: (settings: Settings) => void;
@@ -53,8 +55,15 @@ export const useStore = create<Store>((set) => ({
   threads: [],
   byId: {},
   usage: {},
+  usageStatus: {},
 
-  setUsage: (provider, usage) => set((s) => ({ usage: { ...s.usage, [provider]: usage } })),
+  setUsage: (provider, usage, fetchedAt = Date.now()) => set((s) => ({
+    usage: { ...s.usage, [provider]: usage },
+    usageStatus: { ...s.usageStatus, [provider]: { fetched_at: fetchedAt, error: null, loading: false } },
+  })),
+  setUsageStatus: (provider, patch) => set((s) => ({
+    usageStatus: { ...s.usageStatus, [provider]: { ...(s.usageStatus[provider] ?? { fetched_at: null, error: null, loading: false }), ...patch } },
+  })),
 
   settings: null,
   setSettings: (settings) => set({ settings }),

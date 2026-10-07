@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
-import { FolderGit2, GitBranch, PanelRight, SquareTerminal } from "lucide-react";
+import { FolderGit2, PanelRight, SquareTerminal } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
-import { InsetTrigger, threadLabel } from "@/components/app/sidebar";
-import { StatusDot } from "@/components/app/status-dot";
+import { InsetTrigger } from "@/components/app/sidebar";
 import { Counts } from "@/components/app/diff-view";
 import { OpenMenu } from "@/components/app/open-menu";
 import { cn } from "@/lib/utils";
 import type { DiffResult, Editor, Thread } from "@/contracts";
+import { UsageStatus } from "./usage-status";
 
 function Item(props: { children: ReactNode; title?: string; onClick?: () => void; className?: string }) {
   const cls = cn(
@@ -35,8 +35,6 @@ const home = (p: string) => p.replace(/^\/(Users|home)\/[^/]+/, "~");
 /** VS Code-style bar under the workspace: where you are on the left, what's running on the right. */
 export function StatusBar(props: {
   root: Thread;
-  focused: Thread | null;
-  threads: Thread[];
   diff: DiffResult | null;
   terminals: number;
   connected: boolean;
@@ -46,9 +44,7 @@ export function StatusBar(props: {
   onTerminals: () => void;
   onOpenIn: (editor: Editor) => Promise<string | null>;
 }) {
-  const { root, focused, threads, diff } = props;
-  const running = threads.filter((t) => t.status === "running").length;
-  const waiting = threads.filter((t) => t.status === "awaiting_approval").length;
+  const { root, diff } = props;
   const totals = (diff?.files ?? []).reduce(
     (a, f) => ({
       additions: a.additions + f.additions,
@@ -60,22 +56,6 @@ export function StatusBar(props: {
   return (
     <footer className="relative flex h-7 shrink-0 items-center gap-0.5 px-0.5 text-[12px] text-muted-foreground">
       <InsetTrigger className="size-6" />
-      {focused && (
-        <Item title={focused.parent_id ? `Session in ${threadLabel(root)}` : "This thread"}>
-          <StatusDot status={focused.status} />
-          <span className="max-w-56 truncate text-foreground">{threadLabel(focused)}</span>
-        </Item>
-      )}
-      {root.branch && (
-        <Item
-          title={root.base_ref ? `Branch ${root.branch}, cut from ${root.base_ref} (click to copy)` : `Branch ${root.branch} (click to copy)`}
-          onClick={() => void navigator.clipboard?.writeText(root.branch!)}
-        >
-          <GitBranch className="size-3.5 shrink-0" />
-          <span className="max-w-64 truncate font-mono">{root.branch}</span>
-          {root.base_ref && <span className="font-mono opacity-60">← {root.base_ref}</span>}
-        </Item>
-      )}
       <Item title={`${root.worktree_path} (click to copy)`} onClick={() => void navigator.clipboard?.writeText(root.worktree_path)} className="hidden lg:flex">
         <FolderGit2 className="size-3.5 shrink-0" />
         <span className="max-w-72 truncate font-mono">{home(root.worktree_path)}</span>
@@ -85,21 +65,7 @@ export function StatusBar(props: {
       </Item>
 
       <div className="ml-auto flex h-full items-center gap-0.5">
-        {(running > 0 || waiting > 0) && (
-          <Item title="Agents in this workspace">
-            {running > 0 && (
-              <>
-                <StatusDot status="running" /> {running} working
-              </>
-            )}
-            {waiting > 0 && (
-              <span className="ml-1.5 flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                <StatusDot status="awaiting_approval" /> {waiting} need
-                {waiting === 1 ? "s" : ""} you
-              </span>
-            )}
-          </Item>
-        )}
+        <UsageStatus connected={props.connected} />
         <Item title="Terminals (⌃`)" onClick={props.onTerminals}>
           <SquareTerminal className="size-3.5" />
           {props.terminals || ""}

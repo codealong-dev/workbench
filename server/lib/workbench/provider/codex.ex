@@ -88,6 +88,8 @@ defmodule Workbench.Provider.Codex do
       initial_context: opts[:initial_context],
       initialized: false,
       models_wanted: false,
+      usage_wanted: false,
+      probe: opts[:probe] == true,
       thread_id: nil,
       turn_id: nil,
       queued: [],
@@ -136,6 +138,16 @@ defmodule Workbench.Provider.Codex do
   def list_models(p), do: {:ok, request_models(p)}
 
   defp request_models(p), do: call(p, :model_list, "model/list", %{"limit" => 100})
+
+  @impl true
+  def list_usage(%{initialized: false} = p), do: {:ok, %{p | usage_wanted: true}}
+  def list_usage(p), do: {:ok, request_usage(p)}
+
+  defp request_usage(p) do
+    if :rate_limits in Map.values(p.calls),
+      do: p,
+      else: call(p, :rate_limits, "account/rateLimits/read", %{})
+  end
 
   @impl true
   def handle_line(p, line) do
@@ -215,17 +227,22 @@ defmodule Workbench.Provider.Codex do
     p.write.(%{"method" => "initialized"})
     p = %{p | initialized: true}
     p = if p.models_wanted, do: request_models(%{p | models_wanted: false}), else: p
+    p = if p.usage_wanted, do: request_usage(%{p | usage_wanted: false}), else: p
 
     p =
-      if p.resume,
-        do:
-          call(
-            p,
-            :thread_resume,
-            "thread/resume",
-            Map.put(thread_params(p), "threadId", p.resume)
-          ),
-        else: start_thread(p)
+      if p.probe do
+        p
+      else
+        if p.resume,
+          do:
+            call(
+              p,
+              :thread_resume,
+              "thread/resume",
+              Map.put(thread_params(p), "threadId", p.resume)
+            ),
+          else: start_thread(p)
+      end
 
     {[], p}
   end
@@ -294,9 +311,71 @@ defmodule Workbench.Provider.Codex do
      ], p}
   end
 
+  defp handle_response(p, :rate_limits, {:ok, result}),
+    do: {[%{"type" => "usage", "usage" => plan_usage(result)}], p}
+
+  defp handle_response(p, :rate_limits, {:error, e}),
+    do: {[%{"type" => "usage", "usage" => nil, "error" => msg(e)}], p}
+
   defp handle_response(p, _kind, _result), do: {[], p}
 
+  # Read the full snapshot: rolling notifications may contain only one bucket.
+  defp plan_usage(result) do
+    buckets =
+      case result["rateLimitsByLimitId"] do
+        buckets when is_map(buckets) and map_size(buckets) > 0 ->
+          Enum.sort_by(buckets, fn {id, _} -> {id != "codex", id} end)
+
+        _ ->
+          [{"codex", result["rateLimits"]}]
+      end
+
+    windows =
+      for {id, snapshot} <- buckets,
+          is_map(snapshot),
+          key <- ~w(primary secondary),
+          %{"usedPercent" => used} = window <- [snapshot[key]],
+          is_number(used) do
+        mins = window["windowDurationMins"]
+
+        label =
+          case mins do
+            300 -> "Session (5h)"
+            10080 -> "Weekly"
+            n when is_integer(n) and n > 0 and rem(n, 60) == 0 -> "#{div(n, 60)}h limit"
+            n when is_integer(n) and n > 0 -> "#{n}m limit"
+            _ -> String.capitalize(key)
+          end
+
+        reset =
+          case window["resetsAt"] do
+            n when is_integer(n) ->
+              case DateTime.from_unix(n) do
+                {:ok, date} -> DateTime.to_iso8601(date)
+                _ -> nil
+              end
+
+            _ ->
+              nil
+          end
+
+        %{
+          "id" => "#{id}:#{key}",
+          "label" =>
+            if(id == "codex", do: label, else: "#{snapshot["limitName"] || id} · #{label}"),
+          "used_pct" => min(100, max(0, used)),
+          "resets_at" => reset
+        }
+      end
+
+    if windows == [],
+      do: nil,
+      else: %{"plan" => get_in(result, ["rateLimits", "planType"]), "windows" => windows}
+  end
+
   # -- notifications --------------------------------------------------------------
+
+  defp notification(p, "account/rateLimits/updated", _params), do: {[], request_usage(p)}
 
   defp notification(p, "turn/started", %{"turn" => %{"id" => turn}}) do
     {[%{"type" => "turn.started", "turn_id" => turn}],

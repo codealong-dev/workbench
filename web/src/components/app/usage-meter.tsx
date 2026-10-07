@@ -1,23 +1,9 @@
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useStore } from "@/store";
-import type { UsageWindow } from "@/contracts";
+import { remainingPct as left, resetsIn, usageTone as tone } from "@/lib/usage";
 
-const left = (w: UsageWindow) => Math.max(0, Math.round(100 - w.used_pct));
-
-function resetsIn(iso: string | null) {
-  const ms = iso ? Date.parse(iso) - Date.now() : NaN;
-  if (!Number.isFinite(ms)) return null;
-  if (ms <= 0) return "resetting";
-  const m = Math.round(ms / 60_000);
-  if (m < 60) return `${Math.max(m, 1)}m`;
-  const h = Math.floor(m / 60);
-  return h < 24 ? `${h}h ${m % 60}m` : `${Math.floor(h / 24)}d ${h % 24}h`;
-}
-
-const tone = (pct: number) => (pct <= 10 ? "text-destructive" : pct <= 25 ? "text-amber-500" : "text-muted-foreground");
-
-/** The provider's plan usage, or null while unknown or when it has no limits (API key, Codex). */
+/** The provider's plan usage, or null while unknown or when it has no limits. */
 function usePlanUsage(provider: string) {
   return useStore((s) => s.usage[provider]) ?? null;
 }

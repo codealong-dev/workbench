@@ -6,6 +6,118 @@ defmodule Workbench.CodexProviderTest do
   @recorded Path.expand("../../../fixtures/codex/interrupted-turn.jsonl", __DIR__)
 
   describe "offline: a recorded codex-cli 0.159 session" do
+    test "account limits wait for initialization, and probes never start a thread or turn" do
+      me = self()
+
+      p =
+        Codex.new_state(
+          %{io: :none, pid: me},
+          %{cwd: "/w", mode: "plan", probe: true},
+          &send(me, {:wrote, &1})
+        )
+
+      p = %{p | calls: %{1 => :initialize}, next_id: 2}
+      {:ok, p} = Codex.list_usage(p)
+      refute_received {:wrote, _}
+      {[], p} = Codex.handle_line(p, Jason.encode!(%{"id" => 1, "result" => %{}}))
+      assert_received {:wrote, %{"method" => "initialized"}}
+      assert_received {:wrote, %{"id" => 2, "method" => "account/rateLimits/read"}}
+      refute_received {:wrote, %{"method" => "thread/start"}}
+      refute_received {:wrote, %{"method" => "turn/start"}}
+
+      # A sparse notification requests a full read; overlapping reads share it.
+      {[], p} =
+        Codex.handle_line(
+          p,
+          Jason.encode!(%{"method" => "account/rateLimits/updated", "params" => %{}})
+        )
+
+      refute_received {:wrote, _}
+
+      result = %{
+        "rateLimits" => %{
+          "planType" => "plus",
+          "primary" => %{
+            "usedPercent" => 35,
+            "windowDurationMins" => 300,
+            "resetsAt" => 1_800_000_000
+          },
+          "secondary" => %{"usedPercent" => 120, "windowDurationMins" => 10080, "resetsAt" => nil}
+        }
+      }
+
+      {[event], p} = Codex.handle_line(p, Jason.encode!(%{"id" => 2, "result" => result}))
+
+      assert %{"type" => "usage", "usage" => %{"plan" => "plus", "windows" => [first, second]}} =
+               event
+
+      assert first == %{
+               "id" => "codex:primary",
+               "label" => "Session (5h)",
+               "used_pct" => 35,
+               "resets_at" => "2027-01-15T08:00:00Z"
+             }
+
+      assert second["used_pct"] == 100
+      assert second["resets_at"] == nil
+
+      {[], _} =
+        Codex.handle_line(
+          p,
+          Jason.encode!(%{"method" => "account/rateLimits/updated", "params" => %{}})
+        )
+
+      assert_received {:wrote, %{"method" => "account/rateLimits/read"}}
+    end
+
+    test "multi-bucket limits retain model caps and account read errors remain errors" do
+      p = Codex.new_state(%{io: :none, pid: self()}, %{cwd: "/w", mode: "plan"}, fn _ -> :ok end)
+      p = %{p | initialized: true}
+      {:ok, p} = Codex.list_usage(p)
+      window = %{"usedPercent" => -5, "windowDurationMins" => 60, "resetsAt" => nil}
+
+      result = %{
+        "rateLimits" => %{"planType" => "pro"},
+        "rateLimitsByLimitId" => %{
+          "codex" => %{"primary" => window},
+          "model" => %{"limitName" => "Model cap", "secondary" => window}
+        }
+      }
+
+      {[event], p} = Codex.handle_line(p, Jason.encode!(%{"id" => 1, "result" => result}))
+
+      assert %{
+               "usage" => %{
+                 "windows" => [
+                   %{"id" => "codex:primary", "used_pct" => 0},
+                   %{"id" => "model:secondary", "label" => "Model cap · 1h limit"}
+                 ]
+               }
+             } = event
+
+      {:ok, p} = Codex.list_usage(p)
+
+      {[event], p} =
+        Codex.handle_line(
+          p,
+          Jason.encode!(%{"id" => 2, "error" => %{"message" => "Sign-in expired"}})
+        )
+
+      assert %{"type" => "usage", "usage" => nil, "error" => "Sign-in expired"} = event
+      {:ok, p} = Codex.list_usage(p)
+
+      {[event], _} =
+        Codex.handle_line(
+          p,
+          Jason.encode!(%{
+            "id" => 3,
+            "result" => %{"rateLimits" => %{"primary" => nil, "secondary" => nil}}
+          })
+        )
+
+      assert %{"usage" => nil} = event
+    end
+
     test "shared context is supplied on start, resume, and fallback to a fresh session" do
       me = self()
       context = "ENG-42\nTask details"

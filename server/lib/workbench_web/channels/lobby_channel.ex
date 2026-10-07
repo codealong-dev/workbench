@@ -13,6 +13,8 @@ defmodule WorkbenchWeb.LobbyChannel do
     * `settings.put` `{key, value}` -> `{settings}` (see Workbench.Settings)
     * `models.list` `{provider, refresh?}` -> `{models}`; may start the agent
       just to ask, so the reply can take a few seconds
+    * `usage.list` `{provider, refresh?}` -> `{usage, fetched_at}`; account limits,
+      queried without a turn, and pushed as `usage` `{provider, usage, fetched_at}`
     * `prs.list` `{state?, project_id?, author?, review?}` -> `{prs, errors}`; asks
       GitHub through `gh`, so it can take a few seconds (see Workbench.PullRequests)
     * `pr.review` `{project_id, number, provider?}` -> `{thread}`: the workspace
@@ -27,7 +29,7 @@ defmodule WorkbenchWeb.LobbyChannel do
   """
   use Phoenix.Channel
 
-  alias Workbench.{Automations, Models, Projects, PullRequests, Settings, Threads}
+  alias Workbench.{Automations, Models, Projects, PullRequests, Settings, Threads, Usage}
   alias Workbench.Automations.{Automation, Run}
   alias Workbench.Projects.Project
   alias Workbench.Threads.Thread
@@ -36,6 +38,7 @@ defmodule WorkbenchWeb.LobbyChannel do
   @impl true
   def join("lobby", _params, socket) do
     Threads.subscribe_lobby()
+    Usage.subscribe()
 
     {:ok,
      %{
@@ -44,6 +47,7 @@ defmodule WorkbenchWeb.LobbyChannel do
        threads: Enum.map(Threads.list(), &Thread.to_json/1),
        settings: Settings.all(),
        models: Models.cached(Settings.providers()),
+       usage: Usage.cached(Settings.providers()),
        automations: Enum.map(Automations.list(), &Automation.to_json/1)
      }, socket}
   end
@@ -148,6 +152,27 @@ defmodule WorkbenchWeb.LobbyChannel do
     end
   end
 
+  def handle_in("usage.list", %{"provider" => provider} = params, socket) do
+    if provider in Settings.providers() do
+      ref = socket_ref(socket)
+
+      Task.Supervisor.start_child(Workbench.TaskSupervisor, fn ->
+        case Usage.list(provider, params["refresh"] == true) do
+          {:ok, usage} ->
+            {_cached, at} = Usage.get(provider)
+            reply(ref, {:ok, %{usage: usage, fetched_at: at}})
+
+          {:error, reason} ->
+            reply(ref, {:error, %{reason: reason}})
+        end
+      end)
+
+      {:noreply, socket}
+    else
+      {:reply, {:error, %{reason: "unknown agent #{inspect(provider)}"}}, socket}
+    end
+  end
+
   # both answered from a task: gh and git fetch talk to GitHub
   def handle_in("prs.list", params, socket) do
     ref = socket_ref(socket)
@@ -210,6 +235,12 @@ defmodule WorkbenchWeb.LobbyChannel do
   end
 
   @impl true
+  def handle_info({:usage, provider, usage}, socket) do
+    {_cached, at} = Usage.get(provider)
+    push(socket, "usage", %{provider: provider, usage: usage, fetched_at: at})
+    {:noreply, socket}
+  end
+
   def handle_info({:thread_upserted, thread}, socket) do
     push(socket, "thread.upserted", Thread.to_json(thread))
     {:noreply, socket}

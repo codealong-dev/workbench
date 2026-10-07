@@ -6,6 +6,10 @@ let n = 0;
 readline.createInterface({ input: process.stdin }).on("line", async (line) => {
   const op = JSON.parse(line);
   if (op.op === "start") out({ type: "session.started", session_id: op.resume || "stub-session", model: "stub", cwd: process.cwd(), initial_context: op.initial_context });
+  if (op.op === "usage") out({ type: "usage", usage: { plan: "max", windows: [
+    { id: "five_hour", label: "Session (5h)", used_pct: 42, resets_at: new Date(Date.now() + 3 * 3600000).toISOString() },
+    { id: "seven_day", label: "Weekly", used_pct: 18, resets_at: new Date(Date.now() + 4 * 86400000).toISOString() },
+  ] } });
   if (op.op === "send") {
     n++;
     if (op.text === "crash") { process.stderr.write("stub: boom\n"); process.exit(3); }

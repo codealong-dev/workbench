@@ -161,6 +161,12 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       return out({ id: m.id, result: { userAgent: "stub/0.159.2", codexHome: "/tmp/codex", platformFamily: "unix", platformOs: "linux" } });
     case "initialized":
       return;
+    case "account/rateLimits/read":
+      return out({ id: m.id, result: { rateLimits: {
+        planType: "plus", limitId: "codex", limitName: "Codex",
+        primary: { usedPercent: 35, windowDurationMins: 300, resetsAt: 1800000000 },
+        secondary: { usedPercent: 12, windowDurationMins: 10080, resetsAt: null },
+      }, rateLimitsByLimitId: null } });
     case "thread/start":
       thread = id("thread");
       out({ id: m.id, result: { thread: threadObj(thread, p.cwd), model: "gpt-stub", modelProvider: "openai", cwd: p.cwd, approvalPolicy: p.approvalPolicy, sandbox: { type: "workspaceWrite" } } });

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Channel } from "phoenix";
 import { socket } from "@/socket";
 import { useStore } from "@/store";
-import type { Automation, HostInfo, ModelOption, PlanUsage, Project, Settings, Snapshot, Thread, ThreadEvent } from "@/contracts";
+import type { Automation, HostInfo, ModelOption, PlanUsage, Project, Settings, Snapshot, Thread, ThreadEvent, UsageSnapshot } from "@/contracts";
 
 type Reply = { ok: true; payload?: unknown } | { ok: false; reason: string; payload?: unknown };
 
@@ -20,6 +20,33 @@ export function push(channel: Channel | null, event: string, payload: object = {
 
 let lobby: Channel | null = null;
 
+const usageRequests = new Map<string, Promise<void>>();
+
+/** Account-wide; no chat needs to be open. Keep the last good reading on errors. */
+export function refreshPlanUsage(provider: string, force = false): Promise<void> {
+  const pending = usageRequests.get(provider);
+  if (pending) return pending;
+  useStore.getState().setUsageStatus(provider, { loading: true });
+  const request = push(lobby, "usage.list", { provider, refresh: force }, 30_000).then((r) => {
+    const s = useStore.getState();
+    if (r.ok) {
+      const snapshot = r.payload as UsageSnapshot;
+      s.setUsage(provider, snapshot.usage, snapshot.fetched_at);
+    } else {
+      s.setUsageStatus(provider, { loading: false, error: r.reason });
+    }
+  }).finally(() => usageRequests.delete(provider));
+  usageRequests.set(provider, request);
+  return request;
+}
+
+function refreshEnabledUsage() {
+  const settings = useStore.getState().settings;
+  if (!settings || document.visibilityState === "hidden") return;
+  for (const provider of ["claude", "codex"] as const)
+    if (settings.labs[provider]?.enabled) void refreshPlanUsage(provider);
+}
+
 /** Joins the lobby once; keeps the thread list and statuses in the store. */
 export function useLobby() {
   const [connected, setConnected] = useState(false);
@@ -35,21 +62,37 @@ export function useLobby() {
     ch.on("thread.activity", ({ id, activity }) => useStore.getState().setThreadActivity(id, activity));
     ch.on("thread.messages", ({ id, count }) => useStore.getState().setMessageCount(id, count));
     ch.on("thread.archived", ({ id }) => removeThread(id));
-    ch.on("settings.updated", (s: Settings) => useStore.getState().setSettings(s));
+    ch.on("settings.updated", (s: Settings) => {
+      useStore.getState().setSettings(s);
+      refreshEnabledUsage();
+    });
+    ch.on("usage", ({ provider, usage, fetched_at }: UsageSnapshot & { provider: string }) => useStore.getState().setUsage(provider, usage, fetched_at));
     ch.on("automation.upserted", (a: Automation) => useStore.getState().upsertAutomation(a));
     ch.on("automation.deleted", ({ id }) => useStore.getState().removeAutomation(id));
     ch.onClose(() => setConnected(false));
     ch.onError(() => setConnected(false));
-    ch.join().receive("ok", (reply: { host: HostInfo; projects: Project[]; threads: Thread[]; settings: Settings; models: Record<string, ModelOption[]>; automations: Automation[] }) => {
+    ch.join().receive("ok", (reply: { host: HostInfo; projects: Project[]; threads: Thread[]; settings: Settings; models: Record<string, ModelOption[]>; automations: Automation[]; usage: Record<string, UsageSnapshot> }) => {
       const s = useStore.getState();
       s.setHost(reply.host);
       s.setSettings(reply.settings);
+      for (const [provider, snapshot] of Object.entries(reply.usage ?? {})) s.setUsage(provider, snapshot.usage, snapshot.fetched_at);
       for (const [provider, models] of Object.entries(reply.models ?? {})) if (!s.models[provider]) s.setModels(provider, models);
       setLobby(reply.projects, reply.threads);
       s.setAutomations(reply.automations ?? []);
       setConnected(true);
+      refreshEnabledUsage();
     });
   }, []);
+
+  useEffect(() => {
+    if (!connected) return;
+    const timer = setInterval(refreshEnabledUsage, 5 * 60_000);
+    document.addEventListener("visibilitychange", refreshEnabledUsage);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshEnabledUsage);
+    };
+  }, [connected]);
 
   return { connected };
 }

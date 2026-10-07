@@ -369,6 +369,19 @@ export interface UsageWindow {
 export interface PlanUsage {
   plan: string | null;
   windows: UsageWindow[];
+  /** Optional Claude subscription overage credits. Amounts use the provider's currency. */
+  credits?: { used: number | null; limit: number | null; currency: string } | null;
+}
+
+export interface UsageStatus {
+  fetched_at: number | null;
+  error: string | null;
+  loading: boolean;
+}
+
+export interface UsageSnapshot {
+  usage: PlanUsage | null;
+  fetched_at: number;
 }
 
 /** One lab (agent): on or off, and the models its chat picker offers. */

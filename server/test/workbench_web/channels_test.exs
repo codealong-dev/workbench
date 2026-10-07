@@ -41,6 +41,27 @@ defmodule WorkbenchWeb.ChannelsTest do
     assert Threads.get(id).mode == "plan"
   end
 
+  test "lobby loads account usage without a thread and broadcasts all providers" do
+    :persistent_term.erase({Workbench.Usage, "fake"})
+    on_exit(fn -> :persistent_term.erase({Workbench.Usage, "fake"}) end)
+    {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
+    {:ok, _, lobby} = subscribe_and_join(socket, "lobby", %{})
+    ref = push(lobby, "usage.list", %{"provider" => "fake"})
+    assert_reply(ref, :ok, %{usage: %{"plan" => "max"}, fetched_at: at}, 2_000)
+    assert is_integer(at)
+    assert_push("usage", %{provider: "fake", usage: %{"windows" => [_ | _]}, fetched_at: ^at})
+    assert Workbench.Threads.list() == []
+
+    assert %{"fake" => %{usage: %{"plan" => "max"}, fetched_at: ^at}} =
+             Workbench.Usage.cached(["fake"])
+
+    ref = push(lobby, "usage.list", %{"provider" => "fake"})
+    assert_reply(ref, :ok, %{fetched_at: ^at})
+    refute_push("usage", _, 100)
+    ref = push(lobby, "usage.list", %{"provider" => "unknown"})
+    assert_reply(ref, :error, %{reason: "unknown agent " <> _})
+  end
+
   # 1x1 PNG
   test "context page can be edited from a session, and stale writes return a conflict", %{dir: dir} do
     root = create_thread(dir, %{initial_context: "Original task"})

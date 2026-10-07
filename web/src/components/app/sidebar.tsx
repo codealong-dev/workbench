@@ -205,10 +205,13 @@ function RootRow({ t, sessions, open, onToggle, h }: { t: Thread; sessions: Thre
         isActive={h.selected === t.id}
         onClick={() => h.onSelect(t.id)}
         title={t.branch ? `${threadLabel(t)}\n${t.branch}` : threadLabel(t)}
-        className="group/parent-row"
+        className={cn("group/parent-row", t.branch && "h-auto min-h-10 py-1.5")}
         aria-expanded={hasSessions ? open : undefined}
       >
-        <span className="min-w-0 truncate">{threadLabel(t)}</span>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="truncate">{threadLabel(t)}</span>
+          {t.branch && <span className="truncate text-[10px] font-normal leading-tight text-muted-foreground/70">{t.branch}</span>}
+        </span>
         {t.automation_id && <CalendarClock size={12} strokeWidth={1.5} aria-label="Run by an automation" className="shrink-0 text-muted-foreground" />}
         {hasSessions && <span
           role="button"
