@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, CalendarClock, Loader2, Play, Plus } from "lucide-react";
+import { ArrowLeft, CalendarClock, ChevronRight, Loader2, Play, Plus } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
 import { Tooltip } from "@/components/ui/tooltip";
 import { lobbyChannel, push } from "@/hooks/use-channels";
@@ -51,6 +51,14 @@ function AutomationRow(props: { automation: Automation; selectedRoot: string | n
   const agent = LABS.find((l) => l.id === a.provider)?.agent ?? a.provider;
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // runs are folded away until you ask, unless the one you're in is among them
+  const [expanded, setExpanded] = useState(() => a.runs.some((r) => !!r.thread_id && r.thread_id === props.selectedRoot));
+  const unseen = useStore((s) => s.unseen);
+  const threads = useStore((s) => s.threads);
+  const needYou = a.runs.filter((r) => {
+    const t = r.thread_id ? threads.find((x) => x.id === r.thread_id) : undefined;
+    return r.status === "failed" || (!!t && (t.status === "awaiting_approval" || t.status === "error" || (t.status === "idle" && !!unseen[t.id])));
+  }).length;
 
   const runNow = async () => {
     if (running) return;
@@ -102,9 +110,20 @@ function AutomationRow(props: { automation: Automation; selectedRoot: string | n
         </Tooltip>
       </div>
       {error && <p role="alert" className="px-2 pl-8 text-[12px] text-destructive">{error}</p>}
-      {a.runs.map((run) => (
-        <RunRow key={run.id} run={run} active={!!run.thread_id && run.thread_id === props.selectedRoot} onOpen={onOpenThread} />
-      ))}
+      {a.runs.length > 0 && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+          className="flex w-full items-center gap-1 rounded-md py-0.5 pr-2 pl-7 text-left text-[11.5px] text-muted-foreground outline-none transition-colors duration-80 hover:text-foreground focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)]"
+        >
+          <ChevronRight size={12} strokeWidth={1.75} className={cn("shrink-0 transition-transform duration-80", expanded && "rotate-90")} />
+          {expanded ? "Hide runs" : `Runs (${a.runs.length})`}
+          {!expanded && needYou > 0 && <span className="ml-auto grid h-4 min-w-4 place-items-center rounded-full bg-[#6B97FF] px-1 text-[10px] leading-none font-medium text-white tabular-nums">{needYou}</span>}
+        </button>
+      )}
+      {expanded &&
+        a.runs.map((run) => <RunRow key={run.id} run={run} active={!!run.thread_id && run.thread_id === props.selectedRoot} onOpen={onOpenThread} />)}
     </div>
   );
 }

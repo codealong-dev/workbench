@@ -129,6 +129,17 @@ export interface Usage {
 /** An image in the conversation, stored by the server (Workbench.Uploads). */
 export type ImageRef = { id: string; name: string; mime: string; url: string };
 
+/** A non-image file you attached; the agent gets its path on the server. */
+export type FileRef = {
+  id: string;
+  name: string;
+  size: number;
+  /** Where to fetch it, for a file you uploaded */
+  url?: string;
+  /** Its path in the worktree, for a file that was already there */
+  worktree?: string;
+};
+
 // Timeline items (persisted by the server, rendered by the UI)
 export type MessageItem = {
   id: string;
@@ -137,6 +148,7 @@ export type MessageItem = {
   turn_id?: string | null;
   /** user_message: what you attached */
   images?: ImageRef[];
+  files?: FileRef[];
 };
 export type ToolItem = {
   id: string;

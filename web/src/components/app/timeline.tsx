@@ -11,6 +11,7 @@ import { QuestionCard } from "./question-card";
 import { PlanCard } from "./plan-card";
 import { QuoteSelection } from "./quote-selection";
 import { ImageStrip } from "./images";
+import { FileCard } from "./file-preview";
 import { splitQuotes } from "@/lib/quotes";
 
 function Reasoning({ text, live }: { text: string; live: boolean }) {
@@ -59,8 +60,22 @@ const Row = memo(function Row({ item, live }: { item: Item | LiveItem; live: boo
     case "user_message": {
       const { quotes, body } = splitQuotes(item.text);
       const images = "images" in item ? item.images : undefined;
+      const files = "files" in item ? item.files : undefined;
+      const media =
+        images?.length || files?.length ? (
+          <div className="flex flex-col items-end gap-1.5">
+            {images?.length ? <ImageStrip images={images} className="justify-end" /> : null}
+            {files?.length ? (
+              <div className="flex flex-wrap justify-end gap-1.5">
+                {files.map((f) => (
+                  <FileCard key={f.id} name={f.name} size={f.size} srcKey={f.url ?? `w:${f.worktree}`} src={f.url ? { url: f.url } : { worktree: f.worktree ?? f.name }} />
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : undefined;
       return (
-        <ChatMessage from="user" media={images?.length ? <ImageStrip images={images} className="justify-end" /> : undefined}>
+        <ChatMessage from="user" media={media}>
           {quotes.length > 0 || body ? (
             <>
               {quotes.map((q, i) => (

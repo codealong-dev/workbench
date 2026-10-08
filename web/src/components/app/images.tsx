@@ -47,6 +47,10 @@ const MAX_BYTES = 5 * 1024 * 1024;
 // Bigger than this and the model scales it down anyway; sending less is faster.
 const MAX_EDGE = 2000;
 
+export const ANY_FILE = "*/*";
+// Same 25 MB cap as the server (Workbench.Uploads.max_file_bytes)
+export const MAX_FILE_BYTES = 25 * 1024 * 1024;
+
 export const isImage = (f: File) => IMAGE_TYPES.split(",").includes(f.type);
 
 /**
@@ -60,6 +64,12 @@ export async function encodeImage(file: File): Promise<{ data: string; mime: str
   if (file.type !== "image/gif" || file.size > MAX_BYTES) blob = await shrink(file);
   if (blob.size > MAX_BYTES) throw new Error(`${name} is too large (over 5 MB, even scaled down)`);
   return { data: await base64(blob), mime: blob.type, name };
+}
+
+/** A dropped file that isn't a picture, as the `send` op wants it. */
+export async function encodeFile(file: File): Promise<{ data: string; name: string }> {
+  if (file.size > MAX_FILE_BYTES) throw new Error(`${file.name} is too large (over 25 MB)`);
+  return { data: await base64(file), name: file.name };
 }
 
 async function shrink(file: File): Promise<Blob> {

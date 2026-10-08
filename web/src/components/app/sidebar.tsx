@@ -464,7 +464,12 @@ export function AppSidebar(props: {
       .map((root) => ({ root, sessions: (byParent.get(root.id) ?? []).sort((a, b) => a.inserted_at.localeCompare(b.inserted_at)) }));
   }, [threads]);
 
-  const visible = q ? trees.filter(({ root, sessions }) => [root, ...sessions].some(matches)) : trees;
+  // runs of automations live under Automations, not in their project
+  const unlisted = trees.filter(({ root }) => !root.automation_id);
+  const visible = q ? unlisted.filter(({ root, sessions }) => [root, ...sessions].some(matches)) : unlisted;
+  // automation runs that need you: asking, failed, or finished and not looked at yet
+  const unseen = useStore((s) => s.unseen);
+  const runsNeedingYou = threads.filter((t) => t.automation_id && (t.status === "awaiting_approval" || t.status === "error" || isDone(t, unseen))).length;
   const known = new Set(projects.map((p) => p.id));
   const loose = visible.filter(({ root }) => !root.project_id || !known.has(root.project_id));
 
@@ -533,6 +538,14 @@ export function AppSidebar(props: {
               <SidebarMenuItem>
                 <SidebarMenuButton icon={CalendarClock} onClick={props.onAutomations}>
                   Automations
+                  {runsNeedingYou > 0 && (
+                    <span
+                      aria-label={`${runsNeedingYou} automation run${runsNeedingYou === 1 ? "" : "s"} to look at`}
+                      className="ml-auto grid h-4 min-w-4 place-items-center rounded-full bg-[#6B97FF] px-1 text-[10px] leading-none font-medium text-white tabular-nums"
+                    >
+                      {runsNeedingYou}
+                    </span>
+                  )}
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>

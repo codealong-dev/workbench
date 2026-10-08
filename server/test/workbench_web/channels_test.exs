@@ -155,6 +155,49 @@ defmodule WorkbenchWeb.ChannelsTest do
     refute File.exists?(Workbench.Uploads.dir(id))
   end
 
+  test "files: any file can be attached; the agent gets its path", %{dir: dir} do
+    home = Application.get_env(:workbench, :home)
+    Application.put_env(:workbench, :home, Path.join(dir, "home"))
+    on_exit(fn -> Application.put_env(:workbench, :home, home) end)
+
+    {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})
+    %{id: id} = create_thread(dir)
+    {:ok, _snap, chan} = subscribe_and_join(socket, "thread:" <> id, %{})
+
+    ref = push(chan, "send", %{"text" => "", "files" => [%{"data" => "not base64!", "name" => "a.csv"}]})
+    assert_reply ref, :error, %{reason: "could not attach a.csv: bad file"}
+
+    ref = push(chan, "send", %{"text" => "see this", "files" => [%{"data" => Base.encode64("a,b\n1,2\n"), "name" => "../data.csv"}]})
+    assert_reply ref, :ok
+
+    # the timeline gets the name and size, never the path on disk
+    assert_push "event", %{"type" => "item.completed", "item" => %{"kind" => "user_message", "text" => "see this", "files" => [file]}}
+    assert %{"name" => "data.csv", "size" => 8} = file
+    refute Map.has_key?(file, "path")
+    assert File.read!(Path.join([Workbench.Uploads.dir(id), "files", file["id"], "data.csv"])) == "a,b\n1,2\n"
+
+    # served for the preview, to the page only
+    router = WorkbenchWeb.Router.init([])
+    get = fn path, ip -> WorkbenchWeb.Router.call(%{Plug.Test.conn(:get, path) | remote_ip: ip}, router) end
+    conn = get.(file["url"], {127, 0, 0, 1})
+    assert conn.status == 200
+    assert conn.resp_body == "a,b\n1,2\n"
+    assert get.(file["url"], {100, 64, 1, 2}).status == 401
+    assert get.("/api/uploads/#{id}/files/#{file["id"]}/..%2Fx", {127, 0, 0, 1}).status == 404
+    assert_push "event", %{"type" => "turn.completed"}, 3_000
+
+    # an earlier attachment and a worktree file go with a later message, nothing re-uploaded
+    File.write!(Path.join(dir, "notes.md"), "# hi\n")
+    ref = push(chan, "send", %{"text" => "again", "files" => [%{"upload" => file["id"]}, %{"worktree" => "notes.md"}]})
+    assert_reply ref, :ok
+    assert_push "event", %{"type" => "item.completed", "item" => %{"kind" => "user_message", "text" => "again", "files" => [a, b]}}
+    assert %{"name" => "data.csv", "url" => _} = a
+    assert %{"name" => "notes.md", "worktree" => "notes.md", "size" => 5} = b
+
+    ref = push(chan, "send", %{"text" => "x", "files" => [%{"worktree" => "../outside"}]})
+    assert_reply ref, :error, _
+  end
+
   test "usage: cached answer on ask, refresh starts the agent and is pushed to the channel", %{dir: dir} do
     :persistent_term.erase({Workbench.Usage, "fake"})
     {:ok, socket} = connect(WorkbenchWeb.UserSocket, %{"token" => "test-token"})

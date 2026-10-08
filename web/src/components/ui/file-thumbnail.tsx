@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useShape } from "@/lib/shape-context";
+import { head, isTextFile } from "@/components/app/file-preview";
 
 // ─── Lazy pdfjs loader ────────────────────────────────────────────────────
 // Imports pdfjs-dist on first PDF, caches the module, and points the worker
@@ -103,6 +104,19 @@ function FileThumbnail({ file, size, radius, className }: FileThumbnailProps) {
     };
   }, [file, isPdf, size]);
 
+  // Text, JSON and the like show their first lines, like a snippet.
+  const readable = !isImage && !isPdf && isTextFile(file.name, file.type, file.size);
+  const [snippet, setSnippet] = useState<string | null>(null);
+  useEffect(() => {
+    setSnippet(null);
+    if (!readable) return;
+    let live = true;
+    file.slice(0, 4096).text().then((t) => live && setSnippet(head(t)), () => {});
+    return () => {
+      live = false;
+    };
+  }, [file, readable]);
+
   const previewUrl = imageUrl ?? pdfUrl;
   // Spinner only while a preview is genuinely pending; anything that can't
   // produce one (failed PDF, unsupported type) gets the generic icon instead.
@@ -132,6 +146,13 @@ function FileThumbnail({ file, size, radius, className }: FileThumbnailProps) {
           alt={file.name}
           className="absolute inset-0 w-full h-full object-cover"
         />
+      ) : snippet ? (
+        <pre
+          aria-label={file.name}
+          className="absolute inset-0 overflow-hidden p-1.5 font-mono text-[5px] leading-[6px] whitespace-pre text-muted-foreground"
+        >
+          {snippet}
+        </pre>
       ) : isPending ? (
         // Circular spinner while we wait for the preview to be ready.
         // Used for both images (brief URL-creation gap) and PDFs (longer

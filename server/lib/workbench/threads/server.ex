@@ -131,17 +131,19 @@ defmodule Workbench.Threads.Server do
   # -- calls ------------------------------------------------------------------
 
   @impl true
-  def handle_call({:send, _text, _images}, _from, %{status: s} = st) when s in @busy do
+  def handle_call({:send, _text, _images, _files}, _from, %{status: s} = st) when s in @busy do
     {:reply, {:error, :busy}, st}
   end
 
   # setup runs first, then the message goes
   def handle_call({:send_when_ready, text}, _from, %{setup: %{}} = st), do: {:reply, :ok, %{st | queued: text}}
-  def handle_call({:send_when_ready, text}, from, st), do: handle_call({:send, text, []}, from, st)
+  def handle_call({:send_when_ready, text}, from, st), do: handle_call({:send, text, [], []}, from, st)
 
-  def handle_call({:send, text, images}, _from, st) do
-    case attach(st.thread.id, images) do
-      {:ok, refs} -> send_turn(st, text, refs)
+  def handle_call({:send, text, images, files}, _from, st) do
+    with {:ok, refs} <- attach(st.thread.id, images),
+         {:ok, file_refs} <- attach_files(st.thread, files) do
+      send_turn(st, text, refs, file_refs)
+    else
       {:error, message} -> {:reply, {:error, message}, st}
     end
   end
@@ -609,14 +611,16 @@ defmodule Workbench.Threads.Server do
 
   # -- sending ----------------------------------------------------------------
 
-  defp send_turn(st, text, refs) do
+  defp send_turn(st, text, refs, file_refs) do
     st = if st.status == "error", do: close_provider(st), else: st
     files = for r <- refs, do: %{"path" => Path.join(Uploads.dir(st.thread.id), r["id"]), "mime" => r["mime"]}
     message = %{"id" => "u-" <> uid(), "kind" => "user_message", "text" => text}
     message = if refs == [], do: message, else: Map.put(message, "images", refs)
+    # the path stays on the server: the timeline only needs the name and size
+    message = if file_refs == [], do: message, else: Map.put(message, "files", Enum.map(file_refs, &Map.delete(&1, "path")))
 
     with {:ok, st} <- ensure_provider(st),
-         {:ok, pstate} <- st.provider.send_turn(st.pstate, text, files) do
+         {:ok, pstate} <- st.provider.send_turn(st.pstate, with_files(text, file_refs), files) do
       st =
         %{st | pstate: pstate}
         |> emit(%{"type" => "item.completed", "item" => message})
@@ -640,6 +644,32 @@ defmodule Workbench.Threads.Server do
 
   @max_images 10
 
+  # Other files reach the agent as paths it can read, after what you typed.
+  defp with_files(text, []), do: text
+
+  defp with_files(text, file_refs) do
+    list = Enum.map_join(file_refs, "\n", &"- #{&1["path"]}")
+    String.trim("#{text}\n\nAttached files:\n#{list}")
+  end
+
+  defp attach_files(_thread, files) when length(files) > @max_images,
+    do: {:error, "at most #{@max_images} files per message"}
+
+  # a file is new (`data`), one from earlier in the conversation (`upload`, an
+  # id), or one in the worktree (`worktree`, a path inside it)
+  defp attach_files(thread, files) do
+    Enum.reduce_while(files, {:ok, []}, fn file, {:ok, refs} ->
+      case file_ref(thread, file) do
+        {:ok, ref} ->
+          {:cont, {:ok, refs ++ [ref]}}
+
+        {:error, reason} ->
+          name = if is_map(file) and is_binary(file["name"]), do: file["name"], else: "a file"
+          {:halt, {:error, "could not attach #{name}: #{reason |> to_string() |> String.replace("_", " ")}"}}
+      end
+    end)
+  end
+
   # Store attached images before the turn starts, so a bad one fails the send.
   defp attach(_id, images) when length(images) > @max_images,
     do: {:error, "at most #{@max_images} images per message"}
@@ -657,6 +687,17 @@ defmodule Workbench.Threads.Server do
       end
     end)
   end
+
+  defp file_ref(thread, %{"upload" => id}) when is_binary(id), do: Uploads.resolve(thread.id, id)
+
+  defp file_ref(thread, %{"worktree" => rel}) when is_binary(rel) do
+    with {:ok, %{path: safe, size: size, binary: _}} <- Workbench.Files.read(thread.worktree_path, rel) do
+      {:ok, %{"id" => "w-" <> Base.encode16(:crypto.hash(:sha256, safe), case: :lower) |> binary_part(0, 18), "name" => Path.basename(safe), "size" => size, "path" => Path.join(thread.worktree_path, safe), "worktree" => safe}}
+    end
+  end
+
+  defp file_ref(thread, file) when is_map(file), do: Uploads.store_file(thread.id, Map.take(file, ["data", "name"]))
+  defp file_ref(thread, file), do: Uploads.store_file(thread.id, file)
 
   # -- broadcasting -----------------------------------------------------------
 
@@ -814,7 +855,7 @@ defmodule Workbench.Threads.Server do
         st
 
       text ->
-        {:reply, _, st} = send_turn(%{st | queued: nil}, text, [])
+        {:reply, _, st} = send_turn(%{st | queued: nil}, text, [], [])
         st
     end
   end

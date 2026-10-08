@@ -154,6 +154,8 @@ interface InputMessageProps
   onFilesChange?: (files: File[]) => void;
   /** Accepted MIME types as a comma-separated string. Defaults to PNG / JPEG / PDF. */
   accept?: string;
+  /** Something is attached outside this component (e.g. referenced files), so an empty message can still be sent. */
+  hasExtraContent?: boolean;
   /** Maximum number of files. Extra files are dropped when the limit is exceeded. */
   maxFiles?: number;
   /** Side of each preview tile in pixels. Defaults to 80. */
@@ -461,6 +463,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       files,
       onFilesChange,
       accept = DEFAULT_ACCEPT,
+      hasExtraContent = false,
       maxFiles,
       filePreviewSize = 80,
       textareaProps,
@@ -620,7 +623,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     }, [resizeTextarea]);
 
     const trimmed = value.trim();
-    const canSend = !disabled && (trimmed.length > 0 || filesArr.length > 0);
+    const canSend = !disabled && (trimmed.length > 0 || filesArr.length > 0 || hasExtraContent);
 
     // Edge = the box-shadow's 1px ring, recoloured in place per state so the
     // stroke gains contrast without ever appearing to thicken (no second
@@ -916,6 +919,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     const matchesAccept = useCallback(
       (file: File) =>
         acceptTokens.some((token) => {
+          if (token === "*/*" || token === "*") return true;
           if (token.endsWith("/*")) return file.type.startsWith(token.slice(0, -1));
           if (token.startsWith(".")) return file.name.toLowerCase().endsWith(token.toLowerCase());
           return file.type === token;
