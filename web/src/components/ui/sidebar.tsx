@@ -175,7 +175,7 @@ const Sidebar = forwardRef<HTMLDivElement, SidebarProps>(
           data-variant={variant}
           data-side={side}
           className={cn(
-            "peer sticky top-0 flex h-svh shrink-0 flex-col",
+            "peer sticky top-0 flex h-full shrink-0 flex-col",
             side === "right" && "order-last",
             className
           )}

@@ -6,6 +6,10 @@
 //   * dev (`make app`): no server inside; the launchd agent from `make install` is the server,
 //     and the app only starts that agent if it isn't running.
 // Either way, a server already answering on the port is used as is.
+//
+// The window has no native title bar: the page draws its own (web/src/components/app/title-bar.tsx) under
+// the window controls. This file tells it how much room it has (--wb-titlebar-h, --wb-traffic-w) and
+// moves the window when the page says "drag", since WKWebView has no -webkit-app-region.
 import Cocoa
 import WebKit
 
@@ -19,19 +23,22 @@ let serverBin = resources.appendingPathComponent("server/bin/workbench")
 let embedded = FileManager.default.isExecutableFile(atPath: serverBin.path)
 let updateURL = (info["WBUpdateURL"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }
 
-final class App: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
+final class App: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var web: WKWebView!
     var booting = true
     var server: Process?
     var stopping = false
     var checkedForUpdate = false
+    var lastMouseDown: NSEvent?  // what "drag" from the page moves the window with
+    var barHeight: CGFloat = 0  // the title bar's height, measured while not in full screen
 
     func applicationDidFinishLaunching(_ note: Notification) {
         NSApp.mainMenu = makeMenu()
 
         let config = WKWebViewConfiguration()
         config.applicationNameForUserAgent = "WorkbenchApp"  // the web UI keys off this (see IN_MAC_APP)
+        config.userContentController.add(self, name: "wb")
         web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = self
         web.uiDelegate = self
@@ -43,7 +50,13 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigation
             contentRect: NSRect(x: 0, y: 0, width: 1440, height: 900),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false)
-        window.title = "Workbench"
+        window.title = "Workbench"  // not drawn, but Mission Control and the Window menu use it
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        // an empty toolbar makes the title bar taller, so the window controls sit centered in it
+        window.toolbar = NSToolbar(identifier: "main")
+        window.toolbarStyle = .unifiedCompact
         window.contentView = web
         window.delegate = self
         window.isReleasedWhenClosed = false
@@ -52,6 +65,11 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigation
         window.setFrameAutosaveName("main")
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] e in
+            self?.lastMouseDown = e
+            return e
+        }
+        DispatchQueue.main.async { self.pushChrome() }
 
         web.loadHTMLString(Self.page("Starting Workbench…"), baseURL: nil)
         boot()
@@ -168,12 +186,59 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigation
     }
 
     static func page(_ title: String, _ detail: String = "") -> String {
+        // the strip along the top moves the window, as the app's own title bar does
         """
         <body style="margin:0;height:100vh;display:grid;place-items:center;background:Canvas;color:CanvasText;
         font:14px -apple-system,system-ui;color-scheme:light dark"><div style="text-align:center;max-width:420px">
-        <p style="font-size:16px">\(title)</p><p style="opacity:.6;line-height:1.5">\(detail)</p></div></body>
+        <p style="font-size:16px">\(title)</p><p style="opacity:.6;line-height:1.5">\(detail)</p></div>
+        <div style="position:fixed;top:0;left:0;right:0;height:var(--wb-titlebar-h,40px)"
+        onmousedown="event.button===0&&webkit.messageHandlers.wb.postMessage(event.detail===2?'dblclick':'drag')"></div></body>
         """
     }
+
+    // MARK: title bar (drawn by the page)
+
+    /// Tell the page how much room the window controls and title bar take.
+    func pushChrome() {
+        let full = window.styleMask.contains(.fullScreen)
+        if !full { barHeight = max(0, window.frame.height - window.contentLayoutRect.height) }
+        var lights: CGFloat = 0  // where the controls end, so the page keeps clear of them
+        if !full, let zoom = window.standardWindowButton(.zoomButton) {
+            lights = zoom.convert(zoom.bounds, to: nil).maxX + 12
+        }
+        let js = """
+        document.documentElement.style.setProperty('--wb-titlebar-h','\(Int(barHeight))px');\
+        document.documentElement.style.setProperty('--wb-traffic-w','\(Int(lights))px')
+        """
+        // for pages loaded from now on, and the one showing
+        let scripts = web.configuration.userContentController
+        scripts.removeAllUserScripts()
+        scripts.addUserScript(WKUserScript(source: js, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        web.evaluateJavaScript(js)
+    }
+
+    /// "drag" and "dblclick" from the page's title bar.
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, let kind = message.body as? String else { return }
+        switch kind {
+        case "drag":
+            // the click that started it, and only while still held: otherwise the drag never ends
+            if NSEvent.pressedMouseButtons & 1 != 0, let e = lastMouseDown { window.performDrag(with: e) }
+        case "dblclick":
+            switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {  // System Settings > Desktop & Dock
+            case "Minimize": window.miniaturize(nil)
+            case "None": break
+            default: window.zoom(nil)
+            }
+        default: break
+        }
+    }
+
+    // In full screen the controls hide and the empty toolbar would take a row of its own.
+    func windowWillEnterFullScreen(_ note: Notification) { window.toolbar?.isVisible = false }
+    func windowDidEnterFullScreen(_ note: Notification) { pushChrome() }
+    func windowWillExitFullScreen(_ note: Notification) { window.toolbar?.isVisible = true }
+    func windowDidExitFullScreen(_ note: Notification) { pushChrome() }
 
     // MARK: navigation
 
@@ -193,6 +258,8 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigation
         if let url = action.request.url { NSWorkspace.shared.open(url) }
         return nil
     }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { pushChrome() }
 
     // The server was restarted under us (`make restart`): reload once it answers again.
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { webView.reload() }

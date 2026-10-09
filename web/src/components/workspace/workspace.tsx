@@ -13,6 +13,7 @@ import { fetchFilePatch, useDiff } from "@/hooks/use-diff";
 import { useFiles } from "@/hooks/use-files";
 import { useGuide } from "@/hooks/use-guide";
 import { useTerminals } from "@/hooks/use-terminals";
+import { IN_MAC_APP } from "@/lib/mac-app";
 import { isRemote, remoteEditorUrl } from "@/lib/remote";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store";
@@ -32,9 +33,8 @@ import { applyLayout, fetchLayout, saveLayout } from "./layout";
 import { editorKey, useEditors } from "@/lib/editor-state";
 import { reviewMessage } from "@/lib/review";
 
-// The macOS app's window (desktop/main.swift) says so in its user agent. Native HTML5 drag-and-drop is
-// unreliable in an embedded WKWebView, so panels and tabs are dragged with pointer events there.
-const IN_MAC_APP = navigator.userAgent.includes("WorkbenchApp");
+// Native HTML5 drag-and-drop is unreliable in an embedded WKWebView (the macOS app), so panels and tabs
+// are dragged with pointer events there.
 
 // Pointer drags are plain mouse drags, so the browser also selects the text under the cursor. The native
 // path suppresses that on its own. While a mouse is down on a tab or a group's header, switch selection off.

@@ -45,6 +45,7 @@ import type { IconComponent, IconComponentProps } from "@/lib/icon-context";
 import { spring } from "@/lib/springs";
 import { cn } from "@/lib/utils";
 import { lobbyChannel, push } from "@/hooks/use-channels";
+import { CUSTOM_TITLEBAR } from "@/lib/mac-app";
 import { useEnabledLabs } from "@/lib/labs";
 import { useStore } from "@/store";
 import { ClaudeIcon, PROVIDER_ICON } from "@/lib/provider-icons";
@@ -147,6 +148,7 @@ const actionBtn =
 /** Sidebar toggle for the inset's header: click to open or close. Hidden while the sidebar peeks. */
 export function InsetTrigger({ className }: { className?: string }) {
   const { isPeeking } = useSidebar();
+  if (CUSTOM_TITLEBAR) return null; // the macOS app's title bar has the toggle
   return (
     <SidebarTrigger
       className={cn("transition-opacity delay-200 duration-160", isPeeking ? "opacity-0" : "opacity-100", className)}

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
-import { AppSidebar, InsetTrigger } from "@/components/app/sidebar";
+import { AppSidebar, InsetTrigger, threadLabel } from "@/components/app/sidebar";
+import { TitleBar } from "@/components/app/title-bar";
 import { PANEL } from "@/components/app/panel";
 import { cn } from "@/lib/utils";
 import { WorkspaceView } from "@/components/workspace/workspace";
@@ -12,10 +13,11 @@ import { SettingsSidebar } from "@/components/settings/settings-sidebar";
 import { PrSidebar, prKey } from "@/components/app/pr-sidebar";
 import { AutomationsSidebar } from "@/components/app/automations-sidebar";
 import { SettingsView } from "@/components/settings/settings-view";
-import { DEFAULT_SECTION, isSection, type SectionId } from "@/components/settings/sections";
+import { DEFAULT_SECTION, isSection, sectionItem, type SectionId } from "@/components/settings/sections";
 import { useLobby } from "@/hooks/use-channels";
 import { useStore } from "@/store";
 import { hasToken } from "@/socket";
+import { CUSTOM_TITLEBAR } from "@/lib/mac-app";
 import type { Provider, Thread } from "@/contracts";
 
 const fromHash = () => location.hash.match(/^#\/t\/([^/]+)(?:\/context)?$/)?.[1] ?? null;
@@ -123,10 +125,24 @@ export default function App() {
     else select(null);
   }, [threads, connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const root = threads.find((t) => t.id === rootId);
+  const title = settings ? (
+    <>
+      <span className="text-muted-foreground">Settings</span>
+      <span className="px-1.5 text-muted-foreground/50">/</span>
+      {sectionItem(settings).label}
+    </>
+  ) : root ? (
+    threadLabel(root)
+  ) : null;
+
   return (
     <TooltipProvider>
       {/* No icon rail: collapsed means gone; hover the left edge to peek, "[" toggles. */}
-      <SidebarProvider peek="hover" className="h-svh overflow-hidden">
+      <SidebarProvider peek="hover" className="h-svh flex-col overflow-hidden">
+        {/* the macOS app draws its own title bar above everything (see title-bar.tsx) */}
+        {CUSTOM_TITLEBAR && <TitleBar title={title} onNewThread={() => setNewThread({ open: true })} />}
+        <div className="flex min-h-0 flex-1">
         {settings ? (
           <SettingsSidebar section={settings} onSection={openSettings} onBack={closeSettings} />
         ) : sidebarView === "prs" ? (
@@ -164,9 +180,11 @@ export default function App() {
             <div className="flex-1" />
           ) : (
             <div className="flex flex-1 flex-col">
-              <header className="flex h-10 shrink-0 items-center px-1">
-                <InsetTrigger />
-              </header>
+              {!CUSTOM_TITLEBAR && (
+                <header className="flex h-10 shrink-0 items-center px-1">
+                  <InsetTrigger />
+                </header>
+              )}
               <div className={cn("grid flex-1 place-items-center pb-12 text-[13px] text-muted-foreground", PANEL)}>
                 {hasToken ? (
                   <span>
@@ -179,6 +197,7 @@ export default function App() {
             </div>
           )}
         </SidebarInset>
+        </div>
       </SidebarProvider>
 
       {/* ⌘T: a new thread in the open thread's project, with the agent picked here */}
