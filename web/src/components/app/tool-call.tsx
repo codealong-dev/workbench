@@ -161,7 +161,9 @@ function summaryOf(item: ToolItem): string {
 }
 
 export function ToolCall({ item }: { item: ToolItem }) {
-  const [open, setOpen] = useState(false);
+  // File edits are the most useful tool calls to inspect as they happen. Keep
+  // their diff visible in the timeline; other tools stay compact by default.
+  const [open, setOpen] = useState(() => !item.is_error && ["Patch", "Edit", "MultiEdit"].includes(item.name));
   const Icon = icon(item.name);
   const running = item.status === "running";
 
