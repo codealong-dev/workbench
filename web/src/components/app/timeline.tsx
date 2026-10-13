@@ -10,15 +10,16 @@ import { ApprovalCard } from "./approval-card";
 import { QuestionCard } from "./question-card";
 import { PlanCard } from "./plan-card";
 import { QuoteSelection } from "./quote-selection";
+import { NoteRail } from "./note-rail";
 import { ImageStrip } from "./images";
 import { FileCard } from "./file-preview";
-import { splitQuotes } from "@/lib/quotes";
+import { addNote, splitQuotes, useNotes } from "@/lib/notes";
 
-function Reasoning({ text, live }: { text: string; live: boolean }) {
+function Reasoning({ id, text, live }: { id: string; text: string; live: boolean }) {
   const [open, setOpen] = useState(false);
   const show = open || live;
   return (
-    <div className="w-full text-[13px] text-muted-foreground">
+    <div data-item={id} className="w-full text-[13px] text-muted-foreground">
       <button type="button" onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-hover">
         <ChevronRight className={cn("size-3.5 transition-transform", show && "rotate-90")} />
         <Brain className="size-3.5" />
@@ -58,7 +59,7 @@ const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
 const Row = memo(function Row({ item, live }: { item: Item | LiveItem; live: boolean }) {
   switch (item.kind) {
     case "user_message": {
-      const { quotes, body } = splitQuotes(item.text);
+      const segments = splitQuotes(item.text);
       const images = "images" in item ? item.images : undefined;
       const files = "files" in item ? item.files : undefined;
       const media =
@@ -76,27 +77,32 @@ const Row = memo(function Row({ item, live }: { item: Item | LiveItem; live: boo
         ) : undefined;
       return (
         <ChatMessage from="user" media={media}>
-          {quotes.length > 0 || body ? (
-            <>
-              {quotes.map((q, i) => (
-                <div key={i} className="mb-1.5 line-clamp-4 border-l-2 border-foreground/20 pl-2 text-[13px] whitespace-pre-wrap text-muted-foreground">
-                  {q}
-                </div>
-              ))}
-              <div className="whitespace-pre-wrap">{body}</div>
-            </>
+          {segments.length > 0 ? (
+            <div className="flex flex-col gap-1.5">
+              {segments.map((s, i) =>
+                s.quote ? (
+                  <div key={i} className="line-clamp-4 border-l-2 border-foreground/20 pl-2 text-[13px] whitespace-pre-wrap text-muted-foreground">
+                    {s.text}
+                  </div>
+                ) : (
+                  <div key={i} className="whitespace-pre-wrap">
+                    {s.text}
+                  </div>
+                ),
+              )}
+            </div>
           ) : null}
         </ChatMessage>
       );
     }
     case "assistant_message":
       return (
-        <ChatMessage from="assistant" className="max-w-full" data-quotable>
+        <ChatMessage from="assistant" className="max-w-full" data-quotable data-item={item.id}>
           <Markdown text={item.text} streaming={live} />
         </ChatMessage>
       );
     case "reasoning":
-      return <Reasoning text={item.text} live={live} />;
+      return <Reasoning id={item.id} text={item.text} live={live} />;
     case "tool":
       return <ToolCall item={item} />;
     case "turn":
@@ -118,11 +124,15 @@ export function Timeline(props: {
   status: Status;
   onDecide: (requestId: string, d: Decision, answers?: Answers) => Promise<void>;
   agent: string;
-  /** reply to a selected part of an answer */
-  onQuote?: (text: string) => void;
+  /** the thread whose answers take notes in the margin */
+  thread?: string;
 }) {
-  const { items, live, pending, status, onDecide, agent, onQuote } = props;
+  const { items, live, pending, status, onDecide, agent, thread } = props;
   const frame = useRef<HTMLDivElement>(null);
+  const column = useRef<HTMLDivElement>(null);
+  const notes = useNotes(thread ?? "");
+  const [editing, setEditing] = useState<string | null>(null);
+  const margin = !!thread && notes.length > 0;
   // a question's or plan's own tool row would repeat the card while it is open
   const asking = new Set(pending.filter((a) => a.tool === "AskUserQuestion" || a.tool === "ExitPlanMode").map((a) => a.request_id));
   const scroller = useRef<HTMLDivElement>(null);
@@ -167,35 +177,38 @@ export function Timeline(props: {
 
   return (
     <div ref={frame} className="relative flex min-h-0 flex-1 flex-col">
-      {onQuote && <QuoteSelection frame={frame} scroller={scroller} onQuote={onQuote} />}
+      {thread && <QuoteSelection frame={frame} scroller={scroller} onNote={(anchor) => setEditing(addNote(thread, anchor))} />}
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
-        <div ref={contentRef} className="mx-auto flex max-w-3xl flex-col gap-3 px-6 py-6">
-          {items.length === 0 && live.length === 0 && status === "idle" && (
-            <div className="py-24 text-center text-[13px] text-muted-foreground">Send a message to start.</div>
-          )}
-          {items
-            .filter((it) => !asking.has(it.id))
-            .map((it) => (
-              <Row key={it.id} item={it} live={false} />
+        <div ref={contentRef} className={cn("mx-auto flex gap-4 px-6 py-6", margin ? "max-w-5xl" : "max-w-3xl")}>
+          <div ref={column} className="flex min-w-0 flex-1 flex-col gap-3">
+            {items.length === 0 && live.length === 0 && status === "idle" && (
+              <div className="py-24 text-center text-[13px] text-muted-foreground">Send a message to start.</div>
+            )}
+            {items
+              .filter((it) => !asking.has(it.id))
+              .map((it) => (
+                <Row key={it.id} item={it} live={false} />
+              ))}
+            {live.map((it) => (
+              <Row key={it.id} item={it} live />
             ))}
-          {live.map((it) => (
-            <Row key={it.id} item={it} live />
-          ))}
-          {pending.map((a) =>
-            a.tool === "AskUserQuestion" ? (
-              <QuestionCard
-                key={a.request_id}
-                approval={a}
-                agent={agent}
-                onAnswer={(answers) => (answers ? onDecide(a.request_id, "answer", answers) : onDecide(a.request_id, "deny"))}
-              />
-            ) : a.tool === "ExitPlanMode" ? (
-              <PlanCard key={a.request_id} approval={a} agent={agent} onDecide={(d) => onDecide(a.request_id, d)} />
-            ) : (
-              <ApprovalCard key={a.request_id} approval={a} onDecide={(d) => onDecide(a.request_id, d)} />
-            ),
-          )}
-          {waiting && <ThinkingIndicator className="self-start px-0" />}
+            {pending.map((a) =>
+              a.tool === "AskUserQuestion" ? (
+                <QuestionCard
+                  key={a.request_id}
+                  approval={a}
+                  agent={agent}
+                  onAnswer={(answers) => (answers ? onDecide(a.request_id, "answer", answers) : onDecide(a.request_id, "deny"))}
+                />
+              ) : a.tool === "ExitPlanMode" ? (
+                <PlanCard key={a.request_id} approval={a} agent={agent} onDecide={(d) => onDecide(a.request_id, d)} />
+              ) : (
+                <ApprovalCard key={a.request_id} approval={a} onDecide={(d) => onDecide(a.request_id, d)} />
+              ),
+            )}
+            {waiting && <ThinkingIndicator className="self-start px-0" />}
+          </div>
+          {margin && thread && <NoteRail thread={thread} column={column} editing={editing} onEditing={setEditing} />}
         </div>
       </div>
     </div>

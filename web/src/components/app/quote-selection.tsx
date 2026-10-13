@@ -1,22 +1,31 @@
 import { useEffect, useState, type RefObject } from "react";
-import { MessageCircle } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { MessageSquarePlus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
+import { Elevated } from "@/lib/elevated";
+import { useShape } from "@/lib/shape-context";
+import { spring } from "@/lib/springs";
+import { textOffset, type NoteAnchor } from "@/lib/notes";
 
 /**
- * Select text in an answer (anything marked `data-quotable`) and a "Reply"
- * button appears by the selection; it hands the text to the composer.
- * `frame` is the positioned element the button is placed in; `scroller`
- * hides it when the timeline scrolls.
+ * Select text in an answer (anything marked `data-quotable` inside a
+ * `data-item`) and an "Add note" button appears by the selection; it hands an
+ * anchor for the selection to `onNote`. A selection running past the answer
+ * it starts in is cut at the end of that answer. `frame` is the positioned
+ * element the button is placed in; `scroller` hides it when the timeline scrolls.
  */
 export function QuoteSelection({
   frame,
   scroller,
-  onQuote,
+  onNote,
 }: {
   frame: RefObject<HTMLElement | null>;
   scroller: RefObject<HTMLElement | null>;
-  onQuote: (text: string) => void;
+  onNote: (anchor: NoteAnchor) => void;
 }) {
-  const [at, setAt] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [at, setAt] = useState<{ x: number; y: number; anchor: NoteAnchor } | null>(null);
+  const shape = useShape();
 
   useEffect(() => {
     const read = () => {
@@ -24,16 +33,28 @@ export function QuoteSelection({
       const root = frame.current;
       if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !root) return setAt(null);
       const range = sel.getRangeAt(0);
-      const within = (n: Node | null) => {
+      const quotable = (n: Node | null) => {
         const el = n instanceof Element ? n : n?.parentElement;
-        return !!el && root.contains(el) && !!el.closest("[data-quotable]");
+        return el && root.contains(el) ? el.closest("[data-quotable]") : null;
       };
-      const text = sel.toString().trim();
-      if (!text || !within(range.startContainer) || !within(range.endContainer)) return setAt(null);
+      const from = quotable(range.startContainer);
+      const item = from?.closest<HTMLElement>("[data-item]");
+      if (!from || !item || !quotable(range.endContainer)) return setAt(null);
+      // offsets count from the start of the quotable text (not a reasoning block's label)
+      const within = from.contains(range.endContainer);
+      const start = textOffset(from, range.startContainer, range.startOffset);
+      const end = within ? textOffset(from, range.endContainer, range.endOffset) : (from.textContent ?? "").length;
+      const raw = (from.textContent ?? "").slice(start, end);
+      const quote = within ? sel.toString().trim() : raw.trim();
+      if (!quote) return setAt(null);
       const rects = range.getClientRects();
       const last = rects[rects.length - 1] ?? range.getBoundingClientRect();
       const box = root.getBoundingClientRect();
-      setAt({ x: Math.min(last.right - box.left, box.width - 90), y: last.bottom - box.top + 6, text });
+      setAt({
+        x: Math.min(last.right - box.left, box.width - 90),
+        y: last.bottom - box.top + 6,
+        anchor: { item: item.dataset.item!, start, end, raw, quote },
+      });
     };
     // after the mouse is released (not mid-drag), and for keyboard selection
     const onUp = () => setTimeout(read, 0);
@@ -56,23 +77,39 @@ export function QuoteSelection({
     };
   }, [frame, scroller]);
 
-  if (!at) return null;
   return (
-    <button
-      type="button"
-      // keep the selection alive through the click
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={() => {
-        onQuote(at.text);
-        window.getSelection()?.removeAllRanges();
-        setAt(null);
-      }}
-      aria-label="Reply to selection"
-      title="Reply to selection"
-      className="absolute z-20 flex size-7 items-center justify-center rounded-lg bg-surface-4 text-foreground shadow-surface-4 hover:bg-surface-5"
-      style={{ left: Math.max(at.x - 14, 8), top: at.y }}
-    >
-      <MessageCircle className="size-3.5" />
-    </button>
+    <AnimatePresence>
+      {at && (
+        <motion.div
+          key={`${at.x},${at.y}`}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.9, transition: spring.fast.exit }}
+          transition={spring.fast}
+          className="absolute z-20 origin-top-left"
+          style={{ left: Math.max(at.x - 14, 8), top: at.y }}
+        >
+          <Elevated offset={2} shadowLevel={3} className={shape.container}>
+            <Tooltip content="Add a note" side="bottom">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-compact"
+                aria-label="Add a note"
+                // keep the selection alive through the click
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onNote(at.anchor);
+                  window.getSelection()?.removeAllRanges();
+                  setAt(null);
+                }}
+              >
+                <MessageSquarePlus />
+              </Button>
+            </Tooltip>
+          </Elevated>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

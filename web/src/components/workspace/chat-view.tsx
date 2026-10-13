@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState, type DragEvent } from "react";
-import { FileText, Paperclip, TextQuote, X } from "lucide-react";
-import { withQuotes } from "@/lib/quotes";
+import { AnimatePresence, motion } from "framer-motion";
+import { FileText, Paperclip, X } from "lucide-react";
+import { draftNotes, getNotes, markSent, useNotes, withNotes } from "@/lib/notes";
 import { InputMessage, type QueuedMessage } from "@/components/ui/input-message";
 import { push, useThreadChannel } from "@/hooks/use-channels";
 import { useStore } from "@/store";
@@ -13,6 +14,7 @@ import { ArtifactsPanel } from "@/components/workspace/artifacts-panel";
 import { ARTIFACT_DRAG, artifactsOf, type Artifact } from "@/lib/artifacts";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
+import { spring } from "@/lib/springs";
 import { cn } from "@/lib/utils";
 
 export const AGENT_NAMES: Record<string, string> = {
@@ -25,7 +27,6 @@ const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 // Drafts outlive the tab being hidden (hidden chat tabs unmount).
 const drafts = new Map<string, string>();
 const histories = new Map<string, string[]>();
-const pendingQuotes = new Map<string, string[]>();
 const pendingImages = new Map<string, File[]>();
 // artifacts referenced in the next message, and whether the panel is open (folded by default)
 type Ref = Pick<Artifact, "key" | "name" | "size" | "ref">;
@@ -58,16 +59,10 @@ export function ChatView({ threadId }: { threadId: string }) {
   const [queue, setQueue] = useState<QueuedMessage[]>([]);
   const [history, setHistory] = useState<string[]>(() => histories.get(threadId) ?? []);
   const [sendError, setSendError] = useState<string | null>(null);
-  // parts of answers you're replying to; they go out with the next message
-  const [quotes, setQuotesState] = useState<string[]>(() => pendingQuotes.get(threadId) ?? []);
+  // notes written in the margin go out with the next message
+  const notes = draftNotes(useNotes(threadId));
   const pendingRef = useRef(ts?.pending ?? []);
   pendingRef.current = ts?.pending ?? [];
-  const quotesRef = useRef(quotes);
-  quotesRef.current = quotes;
-  const setQuotes = (q: string[]) => {
-    pendingQuotes.set(threadId, q);
-    setQuotesState(q);
-  };
   // images to send with the next message: dropped anywhere on the chat, pasted, or picked
   const [images, setImagesState] = useState<File[]>(() => pendingImages.get(threadId) ?? []);
   const imagesRef = useRef(images);
@@ -114,19 +109,15 @@ export function ChatView({ threadId }: { threadId: string }) {
     if (fresh.length) setImages([...imagesRef.current, ...fresh].slice(0, MAX_IMAGES));
   };
   const composer = useRef<HTMLDivElement>(null);
-  const quote = (text: string) => {
-    setQuotes([...quotesRef.current, text]);
-    requestAnimationFrame(() => composer.current?.querySelector("textarea")?.focus());
-  };
 
   // encoding and uploading images takes a moment; a second Enter meanwhile is ignored
   const sending = useRef(false);
   const send = useCallback(
     async (text: string, files: File[]) => {
-      if ((!text.trim() && !files.length && !refsRef.current.length) || sending.current) return;
+      const sentNotes = draftNotes(getNotes(threadId));
+      if ((!text.trim() && !files.length && !refsRef.current.length && !sentNotes.length) || sending.current) return;
       setSendError(null);
       sending.current = true;
-      const sentQuotes = quotesRef.current;
       const sentRefs = refsRef.current;
       let r;
       try {
@@ -135,7 +126,7 @@ export function ChatView({ threadId }: { threadId: string }) {
         // files from the artifacts panel go by reference, not as bytes
         const attached = [...uploaded, ...sentRefs.map((r) => r.ref)];
         // uploads can take a while from another machine
-        r = await push(channel.current, "send", { text: withQuotes(sentQuotes, text), images: pics, files: attached }, files.length ? 60_000 : undefined);
+        r = await push(channel.current, "send", { text: withNotes(sentNotes, text), images: pics, files: attached }, files.length ? 60_000 : undefined);
       } catch (e) {
         return setSendError((e as Error).message);
       } finally {
@@ -153,10 +144,7 @@ export function ChatView({ threadId }: { threadId: string }) {
           setImagesState(left);
         }
         if (sentRefs.length) setRefs(refsRef.current.filter((r) => !sentRefs.some((s) => s.key === r.key)));
-        if (sentQuotes.length) {
-          pendingQuotes.delete(threadId);
-          setQuotesState([]);
-        }
+        if (sentNotes.length) markSent(threadId, sentNotes.map((n) => n.id));
         if (text.trim())
           setHistory((h) => {
             const next = [...h, text];
@@ -228,27 +216,9 @@ export function ChatView({ threadId }: { threadId: string }) {
       >
         Drop files to attach them
       </div>
-      <Timeline items={ts.items} live={ts.live} pending={ts.pending} status={status} onDecide={decide} agent={capitalize(agent)} onQuote={quote} />
+      <Timeline items={ts.items} live={ts.live} pending={ts.pending} status={status} onDecide={decide} agent={capitalize(agent)} thread={threadId} />
       <div className="mx-auto w-full max-w-3xl px-6 pb-4">
         {sendError && <div className="mb-2 text-[12px] text-destructive">{sendError}</div>}
-        {quotes.length > 0 && (
-          <div className="mb-1.5 flex flex-col gap-1">
-            {quotes.map((q, i) => (
-              <div key={i} className="flex items-start gap-2 rounded-lg bg-surface-3 px-2.5 py-1.5 text-[12px] text-muted-foreground shadow-surface-1">
-                <TextQuote className="mt-0.5 size-3.5 shrink-0" />
-                <span className="line-clamp-2 min-w-0 flex-1 whitespace-pre-wrap">{q}</span>
-                <button
-                  type="button"
-                  aria-label="Remove quote"
-                  onClick={() => setQuotes(quotes.filter((_, j) => j !== i))}
-                  className="rounded p-0.5 hover:bg-hover hover:text-foreground"
-                >
-                  <X className="size-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
         {refs.length > 0 && (
           <div className="mb-1.5 flex flex-wrap gap-1.5">
             {refs.map((r) => (
@@ -280,12 +250,32 @@ export function ChatView({ threadId }: { threadId: string }) {
               </Button>
             </Tooltip>
           )}
+          rightSlot={
+            <AnimatePresence initial={false}>
+              {notes.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9, transition: spring.fast.exit }}
+                  transition={spring.fast}
+                  className="origin-right"
+                >
+                  <Tooltip content={busy ? `Wait for ${agent} to finish` : "Send your notes, with anything you typed"} side="top">
+                    <Button type="button" variant="secondary" size="compact" disabled={busy} onClick={() => void send(draft, images)}>
+                      Send all
+                      <span className="ml-1 text-muted-foreground tabular-nums">{notes.length}</span>
+                    </Button>
+                  </Tooltip>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          }
           status={busy ? "streaming" : "idle"}
           onStop={() => void push(channel.current, "interrupt")}
           queue={queue}
           onQueueChange={setQueue}
           history={history}
-          placeholder={busy ? "Queue a follow-up…" : `Ask ${agent} to do something…`}
+          placeholder={busy ? "Queue a follow-up…" : notes.length ? "Add a message to go with your notes…" : `Ask ${agent} to do something…`}
           maxRows={12}
         />
         <ComposerBar thread={thread} channel={channel} />

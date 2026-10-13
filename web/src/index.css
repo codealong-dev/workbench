@@ -24,6 +24,11 @@
 .wb-prose th, .wb-prose td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
 .wb-prose hr { border-color: var(--border); }
 
+/* margin notes: the text each one is on (see note-rail.tsx) */
+::highlight(wb-note) { background-color: color-mix(in oklab, #F5C451 30%, transparent); }
+::highlight(wb-note-sent) { background-color: color-mix(in oklab, var(--foreground) 9%, transparent); }
+::highlight(wb-note-active) { background-color: color-mix(in oklab, #F5C451 55%, transparent); }
+
 .wb-inline-code {
   font-family: var(--font-code);
   font-size: 0.88em;
