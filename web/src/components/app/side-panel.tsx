@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import type { Channel } from "phoenix";
 import { ChevronRight, ChevronsDownUp, ExternalLink, Files, GitCompareArrows, RefreshCw, ListFilter, Search, TextSearch } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import { Tabs, TabItem, TabsList } from "@/components/ui/tabs";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import { useResizableWidth } from "@/hooks/use-resizable-width";

@@ -1,4 +1,3 @@
-"use client";
 
 import {
   createContext,
@@ -21,12 +20,12 @@ import {
   type RefObject,
   type SetStateAction,
 } from "react";
-import { animate, motion, useReducedMotion } from "framer-motion";
+import { animate, motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/springs";
-import { useIcon, type IconComponent } from "@/lib/icon-context";
+import { useIcons, type IconComponent } from "@/lib/icon-context";
 import { shapeMap } from "@/lib/shape-context";
-import { SizeProvider, useSize, type SizeVariant } from "@/lib/size-context";
+import { SizeProvider, useSize, typeClass, fieldTouchClass, type SizeVariant } from "@/lib/size-context";
 import { isDisabledRow } from "@/lib/popup";
 import {
   useFluidHover,
@@ -74,8 +73,8 @@ export interface CommandMenuItemData {
   /** What the footer names Enter while the row is highlighted, e.g. "Open
    *  Showcase" for a row labelled "Showcase". Defaults to the label. */
   action?: string;
-  /** Secondary text after the label: the label's size, one contrast step
-   *  lower. */
+  /** Secondary text after the label: the label's size, in the muted
+   *  color. */
   description?: string;
   icon?: IconComponent;
   /** Keys shown at the row's trailing edge, e.g. `"mod+p"` or `"⌘⇧P"`.
@@ -519,7 +518,7 @@ const CommandMenu = forwardRef<HTMLDivElement, CommandMenuProps>(
     // container (the child's effects run before the root's, so the ref is
     // set by the time the hook observes it).
     const hover = useFluidHover(listRef, { isItemDisabled: isDisabledRow });
-    const { activeIndex, setActiveIndex, registerItem, itemRects, isMeasured, sessionRef } = hover;
+    const { activeIndex, setActiveIndex, registerItem, itemRects, isMeasured, session } = hover;
     const { onMouseEnter, onMouseMove, onMouseLeave, onClick } = hover.handlers;
     const listHandlers = useMemo(
       () => ({ onMouseEnter, onMouseMove, onMouseLeave, onClick }),
@@ -548,8 +547,8 @@ const CommandMenu = forwardRef<HTMLDivElement, CommandMenuProps>(
       listenersRef.current.forEach((listener) => listener());
     }, [activeIndex]);
     const fill = useMemo<FluidHoverSource>(
-      () => ({ activeIndex, itemRects, isMeasured, sessionRef }),
-      [activeIndex, itemRects, isMeasured, sessionRef]
+      () => ({ activeIndex, itemRects, isMeasured, session }),
+      [activeIndex, itemRects, isMeasured, session]
     );
 
     // Scrolling is the root's, done the moment a move is decided rather
@@ -605,7 +604,9 @@ const CommandMenu = forwardRef<HTMLDivElement, CommandMenuProps>(
     // The first enabled row is highlighted whenever the row set changes, so
     // Enter always has a target and it follows the query as it filters.
     const rowsRef = useRef(rows);
-    rowsRef.current = rows;
+    useIsoLayoutEffect(() => {
+      rowsRef.current = rows;
+    });
     useEffect(() => {
       const first = rowsRef.current.findIndex((row) => !row.disabled);
       setActiveIndex(first === -1 ? null : first);
@@ -637,7 +638,9 @@ const CommandMenu = forwardRef<HTMLDivElement, CommandMenuProps>(
     );
 
     const onSelectRef = useRef(onSelect);
-    onSelectRef.current = onSelect;
+    useIsoLayoutEffect(() => {
+      onSelectRef.current = onSelect;
+    });
     const select = useCallback(
       (item: CommandMenuItemData) => {
         if (item.disabled) return;
@@ -753,7 +756,8 @@ const CommandMenuInput = forwardRef<HTMLInputElement, CommandMenuInputProps>(
     { className, placeholder = "Type a command or search…", icon, onKeyDown, ...props },
     ref
   ) => {
-    const SearchIcon = useIcon("search");
+    const icons = useIcons();
+    const SearchIcon = icons.search;
     const Icon = icon === undefined ? SearchIcon : icon;
     const sizeClasses = useSize();
     const compact = sizeClasses.variant === "compact";
@@ -869,7 +873,8 @@ const CommandMenuInput = forwardRef<HTMLInputElement, CommandMenuInputProps>(
             "min-w-0 flex-1 rounded-none bg-transparent text-foreground placeholder:text-muted-foreground outline-none font-[inherit]",
             // One notch above the rows' body size: the field is the palette's
             // title line. The line box keeps the caret in proportion.
-            compact ? "text-[13px] leading-5" : "text-[14px] leading-6",
+            compact ? "text-[length:var(--fs-subtitle-compact,13px)] leading-5" : "text-[length:var(--fs-subtitle,14px)] leading-6",
+            fieldTouchClass,
             className
           )}
           {...props}
@@ -1039,7 +1044,9 @@ const CommandMenuList = forwardRef<HTMLDivElement, CommandMenuListProps>(
     // The pointer leaving the list keeps the highlight where it was: Enter
     // still has a target, and the fill stays on the row the field points at.
     const lastActiveRef = useRef<number | null>(null);
-    if (fill && fill.activeIndex !== null) lastActiveRef.current = fill.activeIndex;
+    useIsoLayoutEffect(() => {
+      if (fill && fill.activeIndex !== null) lastActiveRef.current = fill.activeIndex;
+    });
     const handleMouseLeave = () => {
       listHandlers.onMouseLeave();
       setActiveIndex(lastActiveRef.current);
@@ -1055,9 +1062,11 @@ const CommandMenuList = forwardRef<HTMLDivElement, CommandMenuListProps>(
       // scroll-divider draws the edges: the top hairline rides the header
       // line (pulled up 1px onto it) and strengthens once rows pass under
       // it; the bottom hairline stands while rows continue below and goes at
-      // the end, which is why the footer draws no line of its own.
+      // the end, which is why the footer draws no line of its own. With no
+      // footer the list is the panel's last child and that hairline would
+      // land on the panel's own bottom edge and double it, so it is dropped.
       <ScrollArea
-        className="scroll-divider flex min-h-0 flex-1 flex-col border-t border-border/60 [&::before]:!-top-px"
+        className="scroll-divider flex min-h-0 flex-1 flex-col border-t border-border/60 [&::before]:!-top-px [&:last-child::after]:!hidden"
         viewportClassName="min-h-0 flex-1 [&>div[style]]:!block [&>div[style]]:!min-w-0 [--scroll-fade-size:32px] scroll-fade"
       >
         <div
@@ -1105,8 +1114,9 @@ const CommandMenuList = forwardRef<HTMLDivElement, CommandMenuListProps>(
                     id={headingId}
                     role="presentation"
                     className={cn(
-                      "flex shrink-0 items-center text-caption text-muted-foreground",
-                      compact ? "h-6 px-1.5" : "h-7 px-2"
+                      "flex shrink-0 items-center text-muted-foreground",
+                      compact ? "h-6 px-1.5" : "h-7 px-2",
+                      typeClass("caption", compact ? "compact" : "default")
                     )}
                   >
                     {section.heading}
@@ -1190,7 +1200,8 @@ const CommandMenuShortcut = forwardRef<HTMLElement, CommandMenuShortcutProps>(
             key={`${cap}-${i}`}
             className={cn(
               "flex items-center justify-center rounded-[5px] bg-hover text-muted-foreground",
-              compact ? "h-4 min-w-4 px-1 text-[10px]" : "h-5 min-w-5 px-1 text-[11px]"
+              compact ? "h-4 min-w-4 px-1" : "h-5 min-w-5 px-1",
+              typeClass("micro", compact ? "compact" : "default")
             )}
           >
             {cap}
@@ -1312,14 +1323,11 @@ const CommandMenuItem = memo(forwardRef<HTMLDivElement, CommandMenuItemProps>(
             <span className="truncate [text-box:trim-both_cap_alphabetic] py-1 -my-1">
               {item.label}
             </span>
-            {/* The description shares the label's size and sits one
-                contrast step below it, on both states of the row. */}
+            {/* The description shares the label's size, muted on both
+                states of the row. */}
             {item.description && (
               <span
-                className={cn(
-                  "min-w-0 truncate [text-box:trim-both_cap_alphabetic] py-1 -my-1 transition-[color] duration-80",
-                  isActive ? "text-muted-foreground" : "text-muted-foreground/60"
-                )}
+                className="min-w-0 truncate [text-box:trim-both_cap_alphabetic] py-1 -my-1 text-muted-foreground"
               >
                 {item.description}
               </span>
@@ -1375,7 +1383,8 @@ const CommandMenuFooter = forwardRef<HTMLDivElement, CommandMenuFooterProps>(
         data-slot="command-menu-footer"
         className={cn(
           "flex shrink-0 items-center overflow-hidden text-muted-foreground",
-          compact ? "h-8 gap-3 px-3 text-[11px]" : "h-10 gap-4 px-4 text-[12px]",
+          compact ? "h-8 gap-3 px-3" : "h-10 gap-4 px-4",
+          typeClass("caption", compact ? "compact" : "default"),
           className
         )}
         {...props}
@@ -1475,18 +1484,20 @@ function CommandMenuDialog({
 }: CommandMenuDialogProps) {
   const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const open = openProp ?? internalOpen;
-  const openRef = useRef(open);
-  openRef.current = open;
-  const scopeRef = useRef(shortcutScope);
-  scopeRef.current = shortcutScope;
-  const onOpenChangeRef = useRef(onOpenChange);
-  onOpenChangeRef.current = onOpenChange;
   // Read through refs so `setOpen` keeps one identity for the dialog's
   // life: the listener below depends on it, and re-registering on every
   // toggle would move the dialog to the end of the peer list, changing
   // which dialog answers a shared combo with each click.
+  const openRef = useRef(open);
+  const scopeRef = useRef(shortcutScope);
+  const onOpenChangeRef = useRef(onOpenChange);
   const controlledRef = useRef(openProp !== undefined);
-  controlledRef.current = openProp !== undefined;
+  useIsoLayoutEffect(() => {
+    openRef.current = open;
+    scopeRef.current = shortcutScope;
+    onOpenChangeRef.current = onOpenChange;
+    controlledRef.current = openProp !== undefined;
+  });
 
   const setOpen = useCallback((next: boolean) => {
     if (!controlledRef.current) setInternalOpen(next);

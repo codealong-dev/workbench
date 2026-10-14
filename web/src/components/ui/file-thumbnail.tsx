@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { useShape } from "@/lib/shape-context";
 import { head, isTextFile } from "@/components/app/file-preview";
@@ -37,6 +37,42 @@ async function renderPdfFirstPage(file: File, targetWidth: number): Promise<stri
   return canvas.toDataURL("image/png");
 }
 
+// ─── Object URLs ──────────────────────────────────────────────────────────
+// One blob URL per File while any thumbnail shows it: subscribing creates it,
+// the last unsubscribe revokes it. Created at subscription rather than in a
+// memo, so StrictMode's simulated unmount/remount revokes the URL and then
+// mints a fresh one, instead of leaving a revoked `blob:` URL on screen.
+const objectUrls = new Map<File, { url: string; users: number }>();
+
+function subscribeObjectUrl(file: File) {
+  let entry = objectUrls.get(file);
+  if (!entry) {
+    entry = { url: URL.createObjectURL(file), users: 0 };
+    objectUrls.set(file, entry);
+  }
+  entry.users += 1;
+  const held = entry;
+  return () => {
+    held.users -= 1;
+    if (held.users === 0) {
+      URL.revokeObjectURL(held.url);
+      objectUrls.delete(file);
+    }
+  };
+}
+
+function useObjectUrl(file: File | null): string | null {
+  const subscribe = useCallback(
+    () => (file ? subscribeObjectUrl(file) : () => {}),
+    [file]
+  );
+  return useSyncExternalStore(
+    subscribe,
+    () => (file ? (objectUrls.get(file)?.url ?? null) : null),
+    () => null
+  );
+}
+
 // ─── File thumbnail ───────────────────────────────────────────────────────
 // Read-only square preview of a File. Images use object-cover via
 // `URL.createObjectURL`; PDFs render the first page via pdfjs; while either is
@@ -58,51 +94,40 @@ function FileThumbnail({ file, size, radius, className }: FileThumbnailProps) {
   const isImage = file.type.startsWith("image/");
   const isPdf = file.type === "application/pdf";
 
-  // Create blob URL inside an effect (NOT useMemo) so the cleanup-revoke
-  // and the URL-creation stay in sync. In React 18 StrictMode dev, a
-  // useMemo-created URL gets revoked by the simulated effect-cleanup but
-  // useMemo doesn't re-run on the simulated re-mount (no re-render happens),
-  // leaving the DOM with a stale, revoked `blob:` URL — broken image.
-  // Putting both in the same effect means the simulated re-mount creates a
-  // fresh URL and updates state. The one-frame "before URL" state is
-  // covered by the bg-accent (no fallback icon shown for images), so the
-  // transition is visually clean.
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!isImage) {
-      // Clear stale state if the `file` prop swaps type on the same mount —
-      // otherwise a revoked blob URL would keep winning over the new preview.
-      setImageUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(file);
-    setImageUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [isImage, file]);
+  // The URL exists from the commit on, so the first render has none. That
+  // one-frame "before URL" state is covered by the bg-accent (no fallback
+  // icon shown for images), so the transition is visually clean.
+  const imageUrl = useObjectUrl(isImage ? file : null);
 
   // PDFs need async rendering — loading flash is unavoidable for the first
   // ~100–300ms while pdfjs loads. Falls back to the generic icon on error
   // (corrupt/password-protected file, CDN worker blocked).
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [pdfError, setPdfError] = useState(false);
+  // The last render stays up while a new one is on its way (a size change
+  // doesn't flash the spinner); a failure only counts for the file and size
+  // it happened to.
+  const [pdf, setPdf] = useState<{
+    url: string | null;
+    failed: { file: File; size: number } | null;
+  }>({ url: null, failed: null });
+  if (!isPdf && (pdf.url !== null || pdf.failed !== null)) {
+    setPdf({ url: null, failed: null });
+  }
   useEffect(() => {
-    setPdfError(false);
-    if (!isPdf) {
-      setPdfUrl(null);
-      return;
-    }
+    if (!isPdf) return;
     let cancelled = false;
     renderPdfFirstPage(file, size)
       .then((url) => {
-        if (!cancelled) setPdfUrl(url);
+        if (!cancelled) setPdf({ url, failed: null });
       })
       .catch(() => {
-        if (!cancelled) setPdfError(true);
+        if (!cancelled) setPdf((prev) => ({ ...prev, failed: { file, size } }));
       });
     return () => {
       cancelled = true;
     };
   }, [file, isPdf, size]);
+  const pdfUrl = pdf.url;
+  const pdfError = pdf.failed?.file === file && pdf.failed.size === size;
 
   // Text, JSON and the like show their first lines, like a snippet.
   const readable = !isImage && !isPdf && isTextFile(file.name, file.type, file.size);

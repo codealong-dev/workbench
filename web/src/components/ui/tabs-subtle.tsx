@@ -1,4 +1,4 @@
-"use client";
+
 
 import {
   useRef,
@@ -12,7 +12,7 @@ import {
   type HTMLAttributes,
 } from "react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "motion/react";
 import type { IconComponent } from "@/lib/icon-context";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/springs";
@@ -53,7 +53,11 @@ interface TabsSubtleProps extends Omit<HTMLAttributes<HTMLDivElement>, "onSelect
 const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
   ({ children, selectedIndex, onSelect, idPrefix, activeLabel = false, size, className, ...props }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
+    // Whether the pointer is over the list: a ref for blur, which reads it at
+    // the moment it runs, and the same flag as state for the render, which
+    // picks the hover pill's exit from it. Both flip in the same handlers.
     const isMouseInside = useRef(false);
+    const [mouseInside, setMouseInside] = useState(false);
     const shape = useShape();
 
     const {
@@ -96,6 +100,7 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
     const handleMouseMove = useCallback(
       (e: React.MouseEvent) => {
         isMouseInside.current = true;
+        setMouseInside(true);
         handlers.onMouseMove(e);
       },
       [handlers]
@@ -103,6 +108,7 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
 
     const handleMouseLeave = useCallback(() => {
       isMouseInside.current = false;
+      setMouseInside(false);
       handlers.onMouseLeave();
     }, [handlers]);
 
@@ -209,7 +215,7 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
                     opacity: 0.4,
                   }}
                   exit={
-                    !isMouseInside.current && selectedRect
+                    !mouseInside && selectedRect
                       ? {
                           left: selectedRect.left,
                           width: selectedRect.width,

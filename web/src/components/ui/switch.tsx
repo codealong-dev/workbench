@@ -1,4 +1,5 @@
 
+
 import {
   forwardRef,
   useRef,
@@ -8,19 +9,31 @@ import {
   useId,
   type HTMLAttributes,
 } from "react";
-import { motion, useMotionValue, animate, type Transition } from "framer-motion";
+import { motion, useMotionValue, animate, type Transition } from "motion/react";
 import * as SwitchPrimitive from "@radix-ui/react-switch";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/springs";
 import { useSize, type SizeVariant } from "@/lib/size-context";
 
+// ---------------------------------------------------------------------------
+// Switch is a whole labeled row: a click anywhere on it toggles, and the thumb
+// can be dragged across the track. The thumb's x lives in a motion value that
+// the pointer writes directly during a drag and that springs to its resting
+// spot otherwise. Hover stretches the thumb into a pill; press stretches it
+// further and squashes it. `checked` is always owned by the parent: the
+// switch never flips itself, it only calls onToggle.
+// ---------------------------------------------------------------------------
+
 interface SwitchProps extends HTMLAttributes<HTMLDivElement> {
   label: string;
   checked: boolean;
+  /** Called by a click, the keyboard, or a drag released past the
+   *  midpoint. Update `checked` here. */
   onToggle: () => void;
   disabled?: boolean;
+  /** Overrides the thumb's spring (spring.moderate by default). */
   thumbTransition?: Transition;
-  /** Pins the switch to one step of the size ladder (see /docs/sizes).
+  /** Pins the switch to one step of the size ladder.
    *  Omitted, it follows the surrounding SizeProvider. */
   size?: SizeVariant;
 }
@@ -47,7 +60,11 @@ const METRICS = {
   },
 } as const;
 
+// 2px between a resting thumb and every track edge: each track is its thumb
+// plus 4 (20 = 16 + 4, 16 = 12 + 4), so the thumb sits centered.
 const THUMB_OFFSET = 2;
+// Pointer travel (px) before a press turns into a drag. Under it the
+// gesture stays a click, so a tap that wobbles a pixel still toggles.
 const DRAG_DEAD_ZONE = 2;
 
 const Switch = forwardRef<HTMLDivElement, SwitchProps>(
@@ -62,13 +79,20 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
 
     // Drag refs (not state to avoid re-renders during drag)
     const dragging = useRef(false);
+    // didDrag outlives the pointerup by one frame so the click fired by
+    // the same release can be swallowed.
     const didDrag = useRef(false);
+    // Non-null only while a press is in progress; move, up and cancel
+    // ignore events without it.
     const pointerStart = useRef<{
       clientX: number;
       originX: number;
     } | null>(null);
 
-    // Motion value for thumb x-axis
+    // The thumb's x is a motion value, not state: a drag writes it on every
+    // pointermove without re-rendering, and springs pick up from wherever it
+    // was left. It starts at the resting spot for `checked`, so a switch that
+    // mounts on doesn't slide across.
     const motionX = useMotionValue(
       checked ? THUMB_OFFSET + thumbTravel : THUMB_OFFSET
     );
@@ -77,7 +101,9 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
       hasMounted.current = true;
     }, []);
 
-    // Compute thumb shape
+    // Thumb shape. Press wins over hover: +pillExtend wide on hover, +pressExtend wide
+    // and pressShrink shorter on press, with y moved down by half the
+    // shrink so the thumb squashes toward its own center line.
     const thumbWidth = pressed
       ? m.thumbSize + m.pressExtend
       : hovered
@@ -85,12 +111,17 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
         : m.thumbSize;
     const thumbHeight = pressed ? m.thumbSize - m.pressShrink : m.thumbSize;
     const thumbY = pressed ? THUMB_OFFSET + m.pressShrink / 2 : THUMB_OFFSET;
+    // When checked, the extra width grows leftward (x backs off by extraWidth),
+    // so the outer edge stays pinned 2px from the track end instead of
+    // poking past it.
     const extraWidth = thumbWidth - m.thumbSize;
     const thumbX = checked
       ? THUMB_OFFSET + thumbTravel - extraWidth
       : THUMB_OFFSET;
 
-    // Sync motionX when thumbX changes (hover/press/checked) and not dragging
+    // Sync motionX when thumbX changes (hover, press, checked). Mid-drag the
+    // pointer owns x, so this stands down; otherwise x springs on
+    // thumbTransition, or spring.moderate by default.
     useEffect(() => {
       if (dragging.current) return;
       if (!hasMounted.current) {
@@ -111,8 +142,12 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
         didDrag.current = false;
         pointerStart.current = {
           clientX: e.clientX,
+          // Start from where the thumb is now (even mid-spring), so the
+          // first drag frame doesn't jump.
           originX: motionX.get(),
         };
+        // Capture keeps move and up events on the row after the pointer
+        // leaves it, so a drag can overshoot the track and still release.
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       },
       [disabled, motionX]
@@ -123,11 +158,15 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
         if (!pointerStart.current) return;
         const delta = e.clientX - pointerStart.current.clientX;
 
+        // Under the 2px dead zone this is still a click; past it, the thumb
+        // follows the pointer 1:1.
         if (!dragging.current) {
           if (Math.abs(delta) < DRAG_DEAD_ZONE) return;
           dragging.current = true;
         }
 
+        // Clamp with the pressed width (the thumb stays stretched for the
+        // whole drag), so it never pokes past either end of the track.
         const dragMin = THUMB_OFFSET;
         const pressedThumbWidth = m.thumbSize + m.pressExtend;
         const dragMax = m.trackWidth - THUMB_OFFSET - pressedThumbWidth;
@@ -143,6 +182,9 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
         setPressed(false);
 
         if (dragging.current) {
+          // The release that ends a drag still fires a click; the row's
+          // onClick and the primitive's onCheckedChange both check didDrag,
+          // so a drag never toggles twice.
           didDrag.current = true;
           dragging.current = false;
 
@@ -152,8 +194,13 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
           const dragMax = m.trackWidth - THUMB_OFFSET - pressedThumbWidth;
           const midpoint = (dragMin + dragMax) / 2;
 
+          // Past the midpoint of the drag range means on, short of it means
+          // off, whichever side the drag started from.
           const shouldBeOn = currentX > midpoint;
 
+          // A side change toggles, and the parent's new `checked` moves
+          // thumbX, so the sync effect springs on from where the drag let go.
+          // On the same side thumbX may not change at all, so spring home here.
           if (shouldBeOn !== checked) {
             onToggle();
           } else {
@@ -181,7 +228,7 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
 
         if (dragging.current) {
           dragging.current = false;
-          // Gesture cancelled by the system — snap back without toggling
+          // Gesture cancelled by the system: snap back without toggling
           const snapTarget = checked
             ? THUMB_OFFSET + thumbTravel
             : THUMB_OFFSET;
@@ -197,6 +244,9 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
       <div
         ref={ref}
         className={cn(
+          // The whole row is the pointer target. touch-none stops the browser
+          // from claiming a horizontal drag as a scroll (which would cancel
+          // it); select-none keeps a drag from selecting the label.
           "relative z-10 flex items-center cursor-pointer select-none touch-none",
           sizeClasses.gap,
           sizeClasses.px,
@@ -204,6 +254,8 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
           disabled && "opacity-50 pointer-events-none",
           className
         )}
+        // Hover is mouse-only: a finger has no hover, so on touch the thumb
+        // only ever takes the press shape.
         onPointerEnter={(e) => {
           if (e.pointerType === "mouse") setHovered(true);
         }}
@@ -212,6 +264,8 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
+        // A click anywhere on the row, label included, toggles, unless it is
+        // the click that ends a drag.
         onClick={() => {
           if (disabled || didDrag.current) return;
           onToggle();
@@ -231,21 +285,32 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
           className={cn(
             "relative shrink-0 rounded-full outline-none cursor-pointer",
             "transition-colors duration-80",
+            // Only on :focus-visible, so a click leaves no ring. The 2px
+            // offset is filled with the background to part it from the track.
             "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           )}
           style={{
             width: m.trackWidth,
             height: m.trackHeight,
+            // On: #6B97FF, darkening to #5C89F2 on hover. Off: --accent, mixing
+            // in 10% of the overlay color on hover (darker in light mode,
+            // lighter in dark), crossfaded by transition-colors over 80ms.
             backgroundColor: checked
               ? hovered ? "#5C89F2" : "#6B97FF"
               : hovered
                 ? "color-mix(in oklab, var(--accent), rgb(var(--overlay)) 10%)"
                 : "var(--accent)",
           }}
+          // The primitive toggles through onCheckedChange; stopping the click
+          // here keeps the row's onClick from toggling a second time.
           onClick={(e) => e.stopPropagation()}
         >
+          {/* asChild makes the motion.span itself Radix's thumb, so its
+              data-state attributes land on the element that animates. */}
           <SwitchPrimitive.Thumb asChild>
             <motion.span
+              // Pinned to the top-left and placed only by the x and y transforms;
+              // width and height carry the hover and press shapes.
               className="absolute top-0 left-0 block rounded-full bg-white shadow-sm"
               initial={false}
               style={{ x: motionX }}
@@ -254,6 +319,8 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
                 width: thumbWidth,
                 height: thumbHeight,
               }}
+              // Duration 0 on the first render (initial={false} already skips the
+              // entrance), then shape changes ride the same spring as x.
               transition={hasMounted.current ? (thumbTransition ?? spring.moderate) : { duration: 0 }}
             />
           </SwitchPrimitive.Thumb>
@@ -267,6 +334,8 @@ const Switch = forwardRef<HTMLDivElement, SwitchProps>(
             // track is taller than the label, so layout doesn't change.
             "[text-box:trim-both_cap_alphabetic] transition-[color] duration-80",
             sizeClasses.text,
+            // Brightens when on (muted → foreground over 80ms), so
+            // on/off reads in the label as well as the track color.
             checked ? "text-foreground" : "text-muted-foreground"
           )}
         >

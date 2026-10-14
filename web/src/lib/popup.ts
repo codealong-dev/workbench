@@ -10,7 +10,7 @@
  * stamps `data-side` (on the positioner, or on the content itself); these
  * rules turn it into the transform origin and the 4px slide offset, so a
  * popup that flips above its anchor grows upward from its bottom edge.
- * framer-motion resolves the CSS variable when the tween starts, by which
+ * Motion resolves the CSS variable when the tween starts, by which
  * time the position is settled.
  */
 export const popupMotionClass =

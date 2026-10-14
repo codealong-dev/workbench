@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
 import type { Channel } from "phoenix";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import { ArrowUpFromLine, Check, ChevronDown, ChevronRight, ExternalLink, GitCommitHorizontal, GitPullRequest, Minus, Plus, Sparkles, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownContent, DropdownMenu, DropdownTrigger } from "@/components/ui/dropdown";

@@ -1,4 +1,5 @@
 
+
 import {
   createContext,
   forwardRef,
@@ -10,12 +11,13 @@ import {
   type ReactElement,
 } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { motion } from "framer-motion";
+import { fontWeights } from "@/lib/font-weight";
+import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
-import { useIcon } from "@/lib/icon-context";
+import { useIcons } from "@/lib/icon-context";
 import { spring, exitFallbackMs } from "@/lib/springs";
 import { useShape } from "@/lib/shape-context";
-import { useSize, useSizeVariant } from "@/lib/size-context";
+import { useSize, useSizeVariant, typeClass } from "@/lib/size-context";
 import { SurfaceProvider, useSurface } from "@/lib/surface-context";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { Button } from "@/components/ui/button";
@@ -116,7 +118,8 @@ interface DialogContentProps
 
 const DialogContent = forwardRef<HTMLDivElement, DialogContentProps>(
   ({ className, children, size = "sm", container, showCloseButton = true, position = "center", ...props }, ref) => {
-    const XIcon = useIcon("x");
+    const icons = useIcons();
+    const XIcon = icons.x;
     const open = useContext(DialogOpenContext);
     const shape = useShape();
     const substrate = useSurface();
@@ -126,9 +129,9 @@ const DialogContent = forwardRef<HTMLDivElement, DialogContentProps>(
     const compact = useSize().variant === "compact";
     const [mounted, setMounted] = useState(false);
 
-    useEffect(() => {
-      if (open) setMounted(true);
-    }, [open]);
+    // Set during the render that opens it, so the portal mounts in the same
+    // commit as `open` rather than one after.
+    if (open && !mounted) setMounted(true);
 
     // Fallback release for the deferred unmount: onAnimationComplete on the
     // panel is the primary signal, but rAF-driven animation callbacks can
@@ -235,11 +238,11 @@ const DialogTitle = forwardRef<
     <DialogPrimitive.Title
       ref={ref}
       className={cn(
-        compact ? "text-[15px]" : "text-[16px]",
-        "text-foreground leading-tight",
+        typeClass("title", compact ? "compact" : "default"),
+        "text-foreground",
         className
       )}
-      style={{ fontVariationSettings: "'wght' 700" }}
+      style={{ fontVariationSettings: fontWeights.semibold }}
       {...props}
     />
   );
@@ -255,7 +258,7 @@ const DialogDescription = forwardRef<
     <DialogPrimitive.Description
       ref={ref}
       className={cn(
-        compact ? "text-[12px]" : "text-[13px]",
+        typeClass("body", compact ? "compact" : "default"),
         "text-muted-foreground",
         className
       )}

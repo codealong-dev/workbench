@@ -21,16 +21,16 @@ import {
   type Ref,
   type RefObject,
 } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "motion/react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/springs";
 import { fontWeights } from "@/lib/font-weight";
 import { useShape } from "@/lib/shape-context";
-import { useSize, SizeProvider, type SizeVariant } from "@/lib/size-context";
+import { useSize, SizeProvider, typeClass, type SizeVariant } from "@/lib/size-context";
 import { useFluidHover, type ItemRect } from "@/hooks/use-fluid-hover";
 import type { IconComponent } from "@/lib/icon-context";
-import { resolveSlotTemplate, slotElement } from "@/components/ui/sidebar-core";
+import { resolveSlotTemplate, SlotElement } from "@/components/ui/sidebar-core";
 import { FluidHoverHighlight } from "@/components/ui/fluid-hover-highlight";
 
 // SSR-safe layout effect (client components still server-render in Next).
@@ -121,7 +121,10 @@ function rowSkipped(el: HTMLElement) {
 
 /** Stable keys for the per-level active overlays: one id per sub-menu <ul>
  *  (or the menu root), so the active background glides when the active row
- *  moves within its level instead of remounting. */
+ *  moves within its level instead of remounting. The root level is 0 in
+ *  every menu (sub-menu ids start at 1): rows register before the menu's
+ *  own ref attaches, so the root can't be looked up by element. */
+const ROOT_LEVEL_ID = 0;
 let overlayGroupSeq = 0;
 const overlayGroupIds = new WeakMap<Element, number>();
 function overlayGroupId(el: Element) {
@@ -139,6 +142,62 @@ function byDomOrder(a: HTMLElement, b: HTMLElement) {
 
 function sameElements(a: HTMLElement[], b: HTMLElement[]) {
   return a.length === b.length && a.every((el, i) => el === b[i]);
+}
+
+/** What the overlays need to know about a row, read from the DOM when the
+ *  row set syncs rather than during render: its level's overlay id (the
+ *  root, or the sub-menu it sits in) and whether it was registered without a
+ *  button (so the hook measured its whole <li>). */
+interface RowInfo {
+  levelId: number;
+  buttonless: boolean;
+}
+
+function sameRowInfo(a: Map<HTMLElement, RowInfo>, b: Map<HTMLElement, RowInfo>) {
+  if (a.size !== b.size) return false;
+  for (const [row, info] of b) {
+    const prev = a.get(row);
+    if (!prev || prev.levelId !== info.levelId || prev.buttonless !== info.buttonless)
+      return false;
+  }
+  return true;
+}
+
+function sameRect(a: ItemRect | null, b: ItemRect | null) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height;
+}
+
+/** An overlay's target as of its last change, and whether that change moved
+ *  it to a different row (spring) or only moved its row (snap). */
+interface OverlayTarget {
+  row: HTMLElement | null;
+  rect: ItemRect | null;
+  rowChanged: boolean;
+}
+
+const NO_TARGET: OverlayTarget = { row: null, rect: null, rowChanged: false };
+
+function retarget(prev: OverlayTarget, row: HTMLElement | null, rect: ItemRect | null) {
+  if (prev.row === row && sameRect(prev.rect, rect)) return prev;
+  return { row, rect, rowChanged: prev.row !== row };
+}
+
+/** retarget over the keyed active overlays; the same map when none moved. */
+function retargetAll(
+  prev: Map<string, OverlayTarget>,
+  next: { key: string; row: HTMLElement; rect: ItemRect }[]
+) {
+  let changed = prev.size !== next.length;
+  const out = new Map<string, OverlayTarget>();
+  for (const { key, row, rect } of next) {
+    const before = prev.get(key);
+    const after = retarget(before ?? NO_TARGET, row, rect);
+    if (after !== before) changed = true;
+    out.set(key, after);
+  }
+  return changed ? out : prev;
 }
 
 interface MenuScope {
@@ -173,7 +232,7 @@ function useMenuScope(
     setActiveIndex,
     itemRects,
     isMeasured,
-    sessionRef,
+    session,
     handlers,
     registerItem,
   } = useFluidHover(containerRef, { isItemDisabled: rowSkipped });
@@ -182,8 +241,10 @@ function useMenuScope(
   const rowButtonsRef = useRef<Map<HTMLElement, HTMLElement>>(new Map());
   const activeMapRef = useRef<Map<HTMLElement, boolean>>(new Map());
   const [orderedRows, setOrderedRows] = useState<HTMLElement[]>([]);
+  // syncRows keeps this current the moment the row set changes; the state
+  // above follows on the next render.
   const orderedRowsRef = useRef(orderedRows);
-  orderedRowsRef.current = orderedRows;
+  const [rowInfo, setRowInfo] = useState<Map<HTMLElement, RowInfo>>(() => new Map());
   const registeredCountRef = useRef(0);
   const [activeRows, setActiveRows] = useState<HTMLElement[]>([]);
   const [focusedRowEl, setFocusedRowEl] = useState<HTMLElement | null>(null);
@@ -218,6 +279,17 @@ function useMenuScope(
     // filters every row out against the previous render's empty list.
     orderedRowsRef.current = sorted;
     setOrderedRows((prev) => (sameElements(prev, sorted) ? prev : sorted));
+    // Every active row gets its own background, keyed by the row's level
+    // (root, or its sub-menu): see activeRects below.
+    const info = new Map<HTMLElement, RowInfo>();
+    for (const el of sorted) {
+      const sub = el.closest('[data-sidebar="menu-sub"]');
+      info.set(el, {
+        levelId: sub ? overlayGroupId(sub) : ROOT_LEVEL_ID,
+        buttonless: !rowButton(el),
+      });
+    }
+    setRowInfo((prev) => (sameRowInfo(prev, info) ? prev : info));
     sorted.forEach((el, i) => registerItem(i, rowButton(el) ?? el));
     for (let i = sorted.length; i < registeredCountRef.current; i++) {
       registerItem(i, null);
@@ -268,21 +340,18 @@ function useMenuScope(
     });
   }, [recomputeActive, setActiveIndex]);
 
-  // A row's rect spans the whole <li> — which grows when it hosts an expanded
-  // sub-menu — so overlay heights are clamped to the row's button box. The
-  // 48px fallback (the tallest row, size="lg") guarantees the highlight can
-  // never cover an expanded sub-tree even if the button lookup misses.
-  const overlayRect = useCallback(
-    (row: HTMLElement | null): ItemRect | null => {
-      if (!row) return null;
-      const idx = orderedRowsRef.current.indexOf(row);
-      const rect = idx === -1 ? null : itemRects[idx];
-      if (!rect) return null;
-      const height = Math.min(rect.height, rowButton(row)?.offsetHeight ?? 48);
-      return { ...rect, height };
-    },
-    [itemRects, rowButton]
-  );
+  // The hook measures each row's button, so a rect is the button strip. A
+  // row registered without one was measured as its whole <li> — which grows
+  // when it hosts an expanded sub-menu — so that rect is clamped to 48px
+  // (the tallest row, size="lg"): the highlight can never cover an expanded
+  // sub-tree.
+  const overlayRect = (row: HTMLElement | null): ItemRect | null => {
+    if (!row) return null;
+    const idx = orderedRows.indexOf(row);
+    const rect = idx === -1 ? null : itemRects[idx];
+    if (!rect) return null;
+    return rowInfo.get(row)?.buttonless ? { ...rect, height: Math.min(rect.height, 48) } : rect;
+  };
 
   // While a popup anchored in the sidebar is open (a row action's or the
   // header/footer rows' dropdown), hover tracking freezes across every menu
@@ -392,64 +461,49 @@ function useMenuScope(
   // level: the usual case — one active per level, e.g. a current section
   // marker plus the current page inside its sub-tree — keeps a stable key,
   // so the background GLIDES when the selection moves instead of remounting.
-  const rowLevel = useCallback(
-    (row: HTMLElement) =>
-      row.closest('[data-sidebar="menu-sub"]') ?? containerRef.current,
-    [containerRef]
-  );
+  const levelOccurrence = new Map<number, number>();
+  const activeRects: { key: string; rect: ItemRect; row: HTMLElement }[] = [];
+  for (const row of activeRows) {
+    const levelId = rowInfo.get(row)?.levelId;
+    if (levelId === undefined) continue;
+    const occurrence = levelOccurrence.get(levelId) ?? 0;
+    levelOccurrence.set(levelId, occurrence + 1);
+    const rect = overlayRect(row);
+    if (rect) activeRects.push({ key: `${levelId}:${occurrence}`, rect, row });
+  }
+  const hoverRect = overlayRect(hoveredRowEl);
+  const focusRect = focusRing ? overlayRect(focusedRowEl) : null;
+
   // A rect change has two causes with two right answers. The highlight moving
   // to a DIFFERENT row springs — that's the glide. The same row itself moving
   // — a sibling sub-tree collapsing above reflows every row below on every
   // frame of its own spring — must snap, or the overlay chases the row it is
-  // sitting on with a trailing second spring. Targets are compared against
-  // the previous COMMIT (the effect below), not the previous render, so
-  // strict mode's double render can't eat a genuine row change.
-  const prevTargetsRef = useRef<{
-    hover: HTMLElement | null;
-    focus: HTMLElement | null;
-    actives: Map<string, HTMLElement>;
-  }>({ hover: null, focus: null, actives: new Map() });
-
-  const levelOccurrence = new Map<number, number>();
-  const activeRects: {
-    key: string;
-    rect: ItemRect;
-    row: HTMLElement;
-    rowChanged: boolean;
-  }[] = [];
-  for (const row of activeRows) {
-    const level = rowLevel(row);
-    if (!level) continue;
-    const levelId = overlayGroupId(level);
-    const occurrence = levelOccurrence.get(levelId) ?? 0;
-    levelOccurrence.set(levelId, occurrence + 1);
-    const rect = overlayRect(row);
-    if (rect)
-      activeRects.push({
-        key: `${levelId}:${occurrence}`,
-        rect,
-        row,
-        rowChanged: prevTargetsRef.current.actives.get(`${levelId}:${occurrence}`) !== row,
-      });
+  // sitting on with a trailing second spring. Each overlay keeps its target
+  // as of its last change, and which kind of change that was; updated during
+  // render, so the render that moves an overlay already carries the answer.
+  const [targets, setTargets] = useState<{
+    hover: OverlayTarget;
+    focus: OverlayTarget;
+    actives: Map<string, OverlayTarget>;
+  }>(() => ({ hover: NO_TARGET, focus: NO_TARGET, actives: new Map() }));
+  const hoverTarget = retarget(targets.hover, hoveredRowEl, hoverRect);
+  const focusTarget = retarget(targets.focus, focusedRowEl, focusRect);
+  const activeTargets = retargetAll(targets.actives, activeRects);
+  if (
+    hoverTarget !== targets.hover ||
+    focusTarget !== targets.focus ||
+    activeTargets !== targets.actives
+  ) {
+    setTargets({ hover: hoverTarget, focus: focusTarget, actives: activeTargets });
   }
-  const hoverRect = overlayRect(hoveredRowEl);
-  const focusRect = focusRing ? overlayRect(focusedRowEl) : null;
-  const hoverRowChanged = prevTargetsRef.current.hover !== hoveredRowEl;
-  const focusRowChanged = prevTargetsRef.current.focus !== focusedRowEl;
-
-  useIsoLayoutEffect(() => {
-    prevTargetsRef.current = {
-      hover: hoveredRowEl,
-      focus: focusedRowEl,
-      actives: new Map(activeRects.map(({ key, row }) => [key, row])),
-    };
-  });
+  const hoverRowChanged = hoverTarget.rowChanged;
+  const focusRowChanged = focusTarget.rowChanged;
 
   const overlays = isMeasured ? (
     <>
       {/* Active row backgrounds — one per active row (see activeRects above) */}
       <AnimatePresence>
-        {activeRects.map(({ key, rect, rowChanged }) => (
+        {activeRects.map(({ key, rect }) => (
           <motion.div
             key={key}
             className={`absolute ${shape.bg} bg-active pointer-events-none`}
@@ -463,7 +517,7 @@ function useMenuScope(
             }}
             exit={{ opacity: 0, transition: spring.moderate.exit }}
             transition={
-              rowChanged
+              activeTargets.get(key)?.rowChanged
                 ? { ...spring.moderate, opacity: { duration: 0.08 } }
                 : { duration: 0 }
             }
@@ -475,7 +529,7 @@ function useMenuScope(
           travel) when only a reflow moved the rows underneath. */}
       <FluidHoverHighlight
         rect={hoverRect}
-        session={sessionRef.current}
+        session={session}
         className={shape.bg}
         transition={hoverRowChanged ? undefined : false}
       />
@@ -587,11 +641,16 @@ function useMenuRow(rowRef: RefObject<HTMLLIElement | null>, isSubRow = false) {
     return registerRow(el);
   }, [registerRow, rowRef]);
 
+  // The <li> as state too, for the render's "am I the hovered / an active
+  // row" checks against the scope's elements.
+  const [rowEl, setRowEl] = useState<HTMLLIElement | null>(null);
+
   /** The <li>'s ref callback: tracks the element and replays the active flag
    *  the scope may have missed while the ref was detached. */
   const attachRow = useCallback(
     (node: HTMLLIElement | null) => {
       rowRef.current = node;
+      setRowEl(node);
       if (node && setRowActive) setRowActive(node, activeFlagRef.current);
     },
     [setRowActive, rowRef]
@@ -612,9 +671,8 @@ function useMenuRow(rowRef: RefObject<HTMLLIElement | null>, isSubRow = false) {
     [setRowButton, rowRef]
   );
 
-  const isHovered = rowRef.current !== null && scope?.hoveredRowEl === rowRef.current;
-  const isActiveRow =
-    rowRef.current !== null && (scope?.activeRows.includes(rowRef.current) ?? false);
+  const isHovered = rowEl !== null && scope?.hoveredRowEl === rowEl;
+  const isActiveRow = rowEl !== null && (scope?.activeRows.includes(rowEl) ?? false);
 
   const [trailing, setTrailing] = useState({
     actionCount: 0,
@@ -922,7 +980,7 @@ const SidebarMenuButton = forwardRef<HTMLButtonElement, SidebarMenuButtonProps>(
           : sizeClasses.variant === "compact"
             ? "h-7"
             : "h-8";
-    const textClass = size === "sm" ? "text-[12px]" : sizeClasses.text;
+    const textClass = size === "sm" ? typeClass("body", "compact") : sizeClasses.text;
 
     // Roving tabindex: the active rows' buttons are the menu's tab stops; with
     // no active row, the menu's first row keeps it keyboard-reachable.
@@ -985,32 +1043,35 @@ const SidebarMenuButton = forwardRef<HTMLButtonElement, SidebarMenuButtonProps>(
       </>
     );
 
-    return slotElement(
-      template,
-      "button",
-      {
-        ref: (node: HTMLElement | null) => {
+    return (
+      <SlotElement
+        template={template}
+        defaultTag="button"
+        elementRef={(node: HTMLElement | null) => {
           buttonRef.current = node;
           if (typeof ref === "function") ref(node as HTMLButtonElement | null);
           else if (ref) (ref as React.MutableRefObject<HTMLElement | null>).current = node;
-        },
-        type: template ? undefined : "button",
-        "data-sidebar": "menu-button",
-        "data-size": size,
-        "data-active": effectiveActive ? "true" : undefined,
-        "data-status": status,
-        "aria-current": effectiveActive ? "page" : undefined,
-        tabIndex: tabIdx,
-        className: cn(
-          sidebarMenuButtonVariants({ variant }),
-          heightClass,
-          shape.item,
-          className
-        ),
-        ...props,
-        style: { ...gutterVars, ...(props.style ?? {}) },
-      },
-      inner
+        }}
+        props={{
+          type: template ? undefined : "button",
+          "data-sidebar": "menu-button",
+          "data-size": size,
+          "data-active": effectiveActive ? "true" : undefined,
+          "data-status": status,
+          "aria-current": effectiveActive ? "page" : undefined,
+          tabIndex: tabIdx,
+          className: cn(
+            sidebarMenuButtonVariants({ variant }),
+            heightClass,
+            shape.item,
+            className
+          ),
+          ...props,
+          style: { ...gutterVars, ...(props.style ?? {}) },
+        }}
+      >
+        {inner}
+      </SlotElement>
     );
   }
 );
@@ -1040,60 +1101,63 @@ const SidebarMenuAction = forwardRef<HTMLButtonElement, SidebarMenuActionProps>(
       setActions(1, showOnHover);
       return () => setActions(0, false);
     }, [inCluster, setActions, showOnHover]);
-    return slotElement(
-      template,
-      "button",
-      {
-        ref: ref as Ref<HTMLElement>,
-        type: template ? undefined : "button",
-        "data-sidebar": "menu-action",
-        "data-show-on-hover": showOnHover ? "" : undefined,
-        className: cn(
-          // right-1.5 centers the 24px hit-box on the same axis as the badge
-          // (right-2 + min-w-5): both land 18px from the row's right edge.
-          // With a badge on the same row the badge keeps that rightmost spot
-          // and the action slides left of it. Inside a cluster the wrapper
-          // owns the positioning and actions simply flow.
-          inCluster
-            ? "relative flex size-6 shrink-0 items-center justify-center text-muted-foreground outline-none"
-            : "absolute right-1.5 z-10 flex size-6 items-center justify-center text-muted-foreground outline-none",
-          !inCluster &&
-            (item?.isSubRow
-              ? "group-has-[>[data-sidebar=menu-badge]]/menu-sub-item:right-8.5"
-              : "group-has-[>[data-sidebar=menu-badge]]/menu-item:right-8.5"),
-          !inCluster &&
-            (item?.isSubRow || sizeClasses.variant === "compact" ? "top-0.5" : "top-1"),
-          "hover:bg-hover hover:text-foreground transition-[color,background-color,opacity] duration-80",
-          "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)]",
-          // One icon size across the sidebar: row actions match the leading
-          // icons and the section header's actions, all on the size ladder.
-          // Normalize bare icons to the site's 1.5 stroke (library defaults
-          // vary), thickening to 2 on hover — Button's icon-only treatment.
-          "[&_svg]:size-[var(--icon-size)] [&_svg]:shrink-0 [&_svg]:stroke-[1.5] [&_svg]:transition-[stroke-width] [&_svg]:duration-80 hover:[&_svg]:stroke-[2]",
-          shape.item,
-          // Reveal on the OWN row only. A sub action must not use the
-          // menu-item group — its nearest one is the parent li, which would
-          // light every sibling sub action on any hover inside the sub-tree.
-          !inCluster &&
-            showOnHover &&
-            (item?.isSubRow
-              ? "opacity-0 group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:opacity-100 data-[state=open]:opacity-100 aria-expanded:opacity-100"
-              // Tracks the row's own button (its peer), not the <li> — a row
-              // that hosts a sub-menu wraps its children too, and hovering a
-              // child should not light the parent's action.
-              : "opacity-0 peer-hover/menu-button:opacity-100 peer-focus-visible/menu-button:opacity-100 hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 aria-expanded:opacity-100"),
-          className
-        ),
-        onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
-          // The action often sits on a row composed via `render` — keep its
-          // click from also triggering the row.
-          event.stopPropagation();
-          onClick?.(event);
-        },
-        ...props,
-        style: { ...({ "--icon-size": `${sizeClasses.icon}px` } as CSSProperties), ...(props.style ?? {}) },
-      },
-      content
+    return (
+      <SlotElement
+        template={template}
+        defaultTag="button"
+        elementRef={ref as Ref<HTMLElement>}
+        props={{
+          type: template ? undefined : "button",
+          "data-sidebar": "menu-action",
+          "data-show-on-hover": showOnHover ? "" : undefined,
+          className: cn(
+            // right-1.5 centers the 24px hit-box on the same axis as the badge
+            // (right-2 + min-w-5): both land 18px from the row's right edge.
+            // With a badge on the same row the badge keeps that rightmost spot
+            // and the action slides left of it. Inside a cluster the wrapper
+            // owns the positioning and actions simply flow.
+            inCluster
+              ? "relative flex size-6 shrink-0 items-center justify-center text-muted-foreground outline-none"
+              : "absolute right-1.5 z-10 flex size-6 items-center justify-center text-muted-foreground outline-none",
+            !inCluster &&
+              (item?.isSubRow
+                ? "group-has-[>[data-sidebar=menu-badge]]/menu-sub-item:right-8.5"
+                : "group-has-[>[data-sidebar=menu-badge]]/menu-item:right-8.5"),
+            !inCluster &&
+              (item?.isSubRow || sizeClasses.variant === "compact" ? "top-0.5" : "top-1"),
+            "hover:bg-hover hover:text-foreground transition-[color,background-color,opacity] duration-80",
+            "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)]",
+            // One icon size across the sidebar: row actions match the leading
+            // icons and the section header's actions, all on the size ladder.
+            // Normalize bare icons to the site's 1.5 stroke (library defaults
+            // vary), thickening to 2 on hover — Button's icon-only treatment.
+            "[&_svg]:size-[var(--icon-size)] [&_svg]:shrink-0 [&_svg]:stroke-[1.5] [&_svg]:transition-[stroke-width] [&_svg]:duration-80 hover:[&_svg]:stroke-[2]",
+            shape.item,
+            // Reveal on the OWN row only. A sub action must not use the
+            // menu-item group — its nearest one is the parent li, which would
+            // light every sibling sub action on any hover inside the sub-tree.
+            !inCluster &&
+              showOnHover &&
+              (item?.isSubRow
+                ? "opacity-0 group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:opacity-100 data-[state=open]:opacity-100 aria-expanded:opacity-100"
+                // Tracks the row's own button (its peer), not the <li> — a row
+                // that hosts a sub-menu wraps its children too, and hovering a
+                // child should not light the parent's action.
+                : "opacity-0 peer-hover/menu-button:opacity-100 peer-focus-visible/menu-button:opacity-100 hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 aria-expanded:opacity-100"),
+            className
+          ),
+          onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
+            // The action often sits on a row composed via `render` — keep its
+            // click from also triggering the row.
+            event.stopPropagation();
+            onClick?.(event);
+          },
+          ...props,
+          style: { ...({ "--icon-size": `${sizeClasses.icon}px` } as CSSProperties), ...(props.style ?? {}) },
+        }}
+      >
+        {content}
+      </SlotElement>
     );
   }
 );
@@ -1172,7 +1236,8 @@ const SidebarMenuBadge = forwardRef<HTMLDivElement, SidebarMenuBadgeProps>(
         data-sidebar="menu-badge"
         className={cn(
           "pointer-events-none absolute right-2 z-10 flex h-5 min-w-5 items-center justify-center px-1 tabular-nums",
-          sizeClasses.variant === "compact" ? "top-1 text-[10px]" : "top-1.5 text-[11px]",
+          sizeClasses.variant === "compact" ? "top-1" : "top-1.5",
+          typeClass("micro", sizeClasses.variant),
           "transition-[color,font-variation-settings] duration-80",
           lit ? "text-foreground" : "text-muted-foreground",
           className
@@ -1273,11 +1338,11 @@ const SidebarMenuSub = forwardRef<HTMLUListElement, SidebarMenuSubProps>(
     // toggles. A height change coming from a nested sub collapsing inside it
     // snaps, so the wrapper tracks its content instead of chasing it with a
     // second spring and moving everything below late.
-    const prevOpenRef = useRef(open);
-    const togglingRef = useRef(false);
-    if (prevOpenRef.current !== open) {
-      prevOpenRef.current = open;
-      togglingRef.current = true;
+    const [prevOpen, setPrevOpen] = useState(open);
+    const [toggling, setToggling] = useState(false);
+    if (prevOpen !== open) {
+      setPrevOpen(open);
+      setToggling(true);
     }
 
     return (
@@ -1295,17 +1360,17 @@ const SidebarMenuSub = forwardRef<HTMLUListElement, SidebarMenuSubProps>(
             : { opacity: open ? 1 : 0 }
         }
         // Do NOT simplify this to `open ? spring.moderate : …` — see the
-        // togglingRef note above. Springing on a re-measure stacks a second
+        // toggling note above. Springing on a re-measure stacks a second
         // spring on a nested sub's own collapse.
         transition={
-          togglingRef.current
+          toggling
             ? open
               ? spring.moderate
               : spring.moderate.exit
             : { duration: 0 }
         }
         onAnimationComplete={() => {
-          togglingRef.current = false;
+          setToggling(false);
         }}
       >
         <ul
@@ -1378,50 +1443,53 @@ const SidebarMenuSubButton = forwardRef<HTMLAnchorElement, SidebarMenuSubButtonP
 
     const { template, content } = resolveSlotTemplate(render, asChild, children);
 
-    return slotElement(
-      template,
-      "a",
-      {
-        ref: (node: HTMLElement | null) => {
+    return (
+      <SlotElement
+        template={template}
+        defaultTag="a"
+        elementRef={(node: HTMLElement | null) => {
           buttonRef.current = node;
           if (typeof ref === "function") ref(node as HTMLAnchorElement | null);
           else if (ref) (ref as React.MutableRefObject<HTMLElement | null>).current = node;
-        },
-        "data-sidebar": "menu-sub-button",
-        "data-size": size,
-        "data-active": isActive ? "true" : undefined,
-        "aria-current": isActive ? "page" : undefined,
-        tabIndex: tabIdx,
-        className: cn(
-          "relative z-10 flex w-full cursor-pointer select-none items-center gap-2 pl-2 text-left outline-none",
-          "transition-[padding] duration-80 pr-[var(--row-gutter)] group-hover/menu-sub-item:pr-[var(--row-gutter-hover)] group-focus-within/menu-sub-item:pr-[var(--row-gutter-hover)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-sub-item:pr-[var(--row-gutter-hover)]",
-          size === "sm" ? "h-6" : sizeClasses.variant === "compact" ? "h-6" : "h-7",
-          shape.item,
-          className
-        ),
-        ...props,
-        style: { ...gutterVars, ...(props.style ?? {}) },
-      },
-      <>
-        {Icon && (
-          <Icon
-            size={sizeClasses.icon}
-            strokeWidth={lit ? 2 : 1.5}
-            className={cn(
-              "shrink-0 transition-[color,stroke-width] duration-80",
-              lit ? "text-foreground" : "text-muted-foreground"
-            )}
+        }}
+        props={{
+          "data-sidebar": "menu-sub-button",
+          "data-size": size,
+          "data-active": isActive ? "true" : undefined,
+          "aria-current": isActive ? "page" : undefined,
+          tabIndex: tabIdx,
+          className: cn(
+            "relative z-10 flex w-full cursor-pointer select-none items-center gap-2 pl-2 text-left outline-none",
+            "transition-[padding] duration-80 pr-[var(--row-gutter)] group-hover/menu-sub-item:pr-[var(--row-gutter-hover)] group-focus-within/menu-sub-item:pr-[var(--row-gutter-hover)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-sub-item:pr-[var(--row-gutter-hover)]",
+            size === "sm" ? "h-6" : sizeClasses.variant === "compact" ? "h-6" : "h-7",
+            shape.item,
+            className
+          ),
+          ...props,
+          style: { ...gutterVars, ...(props.style ?? {}) },
+        }}
+      >
+        <>
+          {Icon && (
+            <Icon
+              size={sizeClasses.icon}
+              strokeWidth={lit ? 2 : 1.5}
+              className={cn(
+                "shrink-0 transition-[color,stroke-width] duration-80",
+                lit ? "text-foreground" : "text-muted-foreground"
+              )}
+            />
+          )}
+          {/* Sub-rows keep the parent rows' type size — only the row height
+              steps down. */}
+          <MenuRowLabel
+            content={content}
+            lit={lit}
+            emphasized={isActive}
+            textClass={size === "sm" ? typeClass("body", "compact") : sizeClasses.text}
           />
-        )}
-        {/* Sub-rows keep the parent rows' type size — only the row height
-            steps down. */}
-        <MenuRowLabel
-          content={content}
-          lit={lit}
-          emphasized={isActive}
-          textClass={size === "sm" ? "text-[12px]" : sizeClasses.text}
-        />
-      </>
+        </>
+      </SlotElement>
     );
   }
 );

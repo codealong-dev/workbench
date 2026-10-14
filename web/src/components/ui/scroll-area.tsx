@@ -1,4 +1,5 @@
 
+
 // Adapted from Lina by SameerJS6 (https://lina.sameer.sh) — lina-radix
 // scroll-area. Changes from the original: Lina's gradient-only ScrollMask is
 // dropped, the scrollbar is restyled to the shape system,
@@ -17,6 +18,7 @@ import {
 } from "react";
 import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
 import { cn } from "@/lib/utils";
+import { omit } from "@/lib/omit";
 import { useShape } from "@/lib/shape-context";
 import { useTouchPrimary } from "@/hooks/use-touch-primary";
 
@@ -54,15 +56,16 @@ const ScrollArea = forwardRef<
     {
       className,
       children,
-      // Swallowed: hide timing is owned by the fade classes + scroll linger
-      // below, not Radix's hover machinery (see type="always" note).
-      scrollHideDelay: _scrollHideDelay,
       viewportClassName,
       orientation = "vertical",
-      ...props
+      ...rest
     },
     ref
   ) => {
+    // scrollHideDelay is swallowed: hide timing is owned by the fade classes
+    // + scroll linger below, not Radix's hover machinery (see type="always"
+    // note).
+    const props = omit(rest, ["scrollHideDelay"]);
     const isTouch = useTouchPrimary();
 
     // Hover + scroll visibility, driving the scrollbar fade below. Scroll
@@ -165,7 +168,7 @@ const ScrollBar = forwardRef<
       data-visible={visible ? "" : undefined}
       // Scrollbar show/hide is plain CSS opacity matching the cue fade —
       // 160ms in, 120ms out (exits faster, per the animation guidelines);
-      // spring tokens are framer-motion configs and don't apply here.
+      // spring tokens are Motion configs and don't apply here.
       className={cn(
         // The 10px track stays as a comfortable hit target; the thumb inside
         // it rests narrow and low-contrast, then widens + darkens on hover so

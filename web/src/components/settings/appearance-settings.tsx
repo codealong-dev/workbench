@@ -1,6 +1,6 @@
 import { lazy, Suspense, useMemo, useState, type ReactNode } from "react";
 import { Check, Columns2, Monitor, Moon, Rows2, Sun } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion } from "motion/react";
 import { FileDiff } from "@pierre/diffs/react";
 import { parseDiffFromFile } from "@pierre/diffs";
 import { Button } from "@/components/ui/button";

@@ -9,7 +9,7 @@ import {
   type HTMLAttributes,
 } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { motion, useReducedMotion } from "framer-motion";
+import { motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { spring, exitFallbackMs } from "@/lib/springs";
 import { useSurface, SurfaceProvider } from "@/lib/surface-context";
@@ -27,7 +27,7 @@ import {
 //
 // Built on Radix Dialog: it provides scroll lock, focus trap, focus restore,
 // Esc + outside-click dismissal, while leaving the slide animation to
-// framer-motion. Radix has no actionsRef-style deferred unmount, so the
+// Motion. Radix has no actionsRef-style deferred unmount, so the
 // portal lifetime is managed with local `mounted` state: mount on open, keep
 // the portal alive with `forceMount` through the exit tween, and unmount once
 // the panel's exit animation completes.
@@ -49,9 +49,9 @@ function SidebarSheet({ side, open, onClose, children }: SidebarSheetProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
 
   const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    if (open) setMounted(true);
-  }, [open]);
+  // Set during the render that opens it, so the portal mounts in the same
+  // commit as `open` rather than one after.
+  if (open && !mounted) setMounted(true);
 
   // Fallback release for the deferred unmount: onAnimationComplete on the
   // panel is the primary signal, but rAF-driven animation callbacks can stall

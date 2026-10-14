@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState, type DragEvent } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion } from "motion/react";
 import { FileText, Paperclip, X } from "lucide-react";
 import { draftNotes, getNotes, markSent, useNotes, withNotes } from "@/lib/notes";
 import { InputMessage, type QueuedMessage } from "@/components/ui/input-message";

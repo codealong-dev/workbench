@@ -1,5 +1,5 @@
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import {
   Archive,
   CalendarClock,

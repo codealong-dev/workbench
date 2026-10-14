@@ -1,4 +1,5 @@
 
+
 import { type ReactNode } from "react";
 import {
   SidebarMenu,
@@ -15,7 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useShape } from "@/lib/shape-context";
 import { useSize } from "@/lib/size-context";
-import { useIcon } from "@/lib/icon-context";
+import { useIcons } from "@/lib/icon-context";
 import { fontWeights } from "@/lib/font-weight";
 import { SIDEBAR_MENU_POPUP } from "@/lib/sidebar-menu-grid";
 
@@ -53,7 +54,8 @@ export function SidebarWorkspaceHeader({
   checkedIndex,
 }: SidebarWorkspaceHeaderProps) {
   const iconSize = useSize().icon;
-  const ChevronDown = useIcon("chevron-down");
+  const icons = useIcons();
+  const ChevronDown = icons["chevron-down"];
   const { isPeeking } = useSidebar();
 
   // The tile sits absolutely in the row's leading slot — 20px at left-1.5
@@ -78,7 +80,7 @@ export function SidebarWorkspaceHeader({
   }`;
   const nameSpan = (
     <span
-      className="min-w-0 truncate text-[13px] text-foreground"
+      className="min-w-0 truncate text-[length:var(--fs-body,13px)] leading-[var(--lh-body,20px)] text-foreground"
       style={{ fontVariationSettings: fontWeights.semibold }}
     >
       {name}
@@ -159,7 +161,7 @@ export function WorkspaceTile({
   return (
     <span
       className={cn(
-        "flex size-5 shrink-0 items-center justify-center bg-foreground text-[10px] text-background",
+        "flex size-5 shrink-0 items-center justify-center bg-foreground text-[length:var(--fs-micro-compact,10px)] leading-[var(--lh-micro-compact,12px)] text-background",
         shape.bgRadius >= 20 ? "rounded-full" : "rounded-md",
         className
       )}

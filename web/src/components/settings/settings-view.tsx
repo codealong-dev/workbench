@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion } from "motion/react";
 import { InsetTrigger } from "@/components/app/sidebar";
 import { PANEL } from "@/components/app/panel";
 import { ScrollArea } from "@/components/ui/scroll-area";

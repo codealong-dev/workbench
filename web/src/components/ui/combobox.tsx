@@ -1,8 +1,10 @@
 
+
 import {
   forwardRef,
   useRef,
   useEffect,
+  useLayoutEffect,
   useState,
   useCallback,
   useMemo,
@@ -14,20 +16,25 @@ import {
   type InputHTMLAttributes,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { motion, AnimatePresence, animate, useMotionValue, type MotionValue } from "framer-motion";
+import { motion, AnimatePresence, animate, useMotionValue, type MotionValue } from "motion/react";
 import { cva, type VariantProps } from "class-variance-authority";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { useIcon, type IconComponent } from "@/lib/icon-context";
+import { useIcons, type IconComponent } from "@/lib/icon-context";
 import { cn } from "@/lib/utils";
 import { spring, exitFallbackMs } from "@/lib/springs";
-import { useFluidHover, useRegisterFluidHoverItem } from "@/hooks/use-fluid-hover";
+import { omit } from "@/lib/omit";
+import {
+  useFluidHover,
+  useRegisterFluidHoverItem,
+  type ItemRect,
+} from "@/hooks/use-fluid-hover";
 import {
   useMergeSplitBlocks,
   useSelectionRuns,
   SelectionBackgrounds,
 } from "@/hooks/use-merge-split";
 import { useShape, shapeMap } from "@/lib/shape-context";
-import { SizeProvider, useSize, type SizeVariant } from "@/lib/size-context";
+import { SizeProvider, useSize, typeClass, type SizeVariant } from "@/lib/size-context";
 import { Elevated } from "@/lib/elevated";
 import {
   popupMotionClass,
@@ -54,6 +61,9 @@ import { FluidHoverHighlight } from "@/components/ui/fluid-hover-highlight";
 // ComboboxList function child. String items are their own value and label;
 // object items carry `{ value, label }` plus anything else you need.
 // ---------------------------------------------------------------------------
+
+const useIsoLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 type ComboboxItemData = string | { value: string; label: string };
 
@@ -255,10 +265,13 @@ function Combobox<
   const [highlight, setHighlight] = useState<Highlight | null>(null);
   const highlightRef = useRef<Highlight | null>(null);
 
-  // An external value change (or a label change) re-syncs the field.
-  useEffect(() => {
+  // An external value change (or a label change) re-syncs the field, during
+  // the render that brings it.
+  const [syncedLabel, setSyncedLabel] = useState(selectedLabel);
+  if (syncedLabel !== selectedLabel) {
+    setSyncedLabel(selectedLabel);
     setInputValueState(selectedLabel);
-  }, [selectedLabel]);
+  }
 
   // The create row appears once the trimmed query matches no label exactly.
   const trimmedQuery = query.trim();
@@ -286,7 +299,9 @@ function Combobox<
   // list that just shrank) would point aria-activedescendant at no element.
   const safeHighlight =
     highlight && highlight.index < filteredItems.length ? highlight : null;
-  highlightRef.current = safeHighlight;
+  useIsoLayoutEffect(() => {
+    highlightRef.current = safeHighlight;
+  });
 
   const commitValues = useCallback(
     (next: string[]) => {
@@ -312,7 +327,9 @@ function Combobox<
   );
 
   const onCreateRef = useRef(onCreate);
-  onCreateRef.current = onCreate;
+  useIsoLayoutEffect(() => {
+    onCreateRef.current = onCreate;
+  });
 
   const select = useCallback(
     (item: ComboboxItemData) => {
@@ -385,9 +402,12 @@ function Combobox<
   // The first row is highlighted the moment the list opens, whatever opened
   // it (a click, the chevron, typing), so Enter always has a target. An
   // opener that already chose a row (ArrowUp picks the last) keeps it.
-  useEffect(() => {
+  // Set during the render that opens it.
+  const [highlightOpen, setHighlightOpen] = useState(open);
+  if (highlightOpen !== open) {
+    setHighlightOpen(open);
     if (open) setHighlight((h) => h ?? { index: 0, keyboard: true });
-  }, [open]);
+  }
 
   const createRow = createItem ? createLabel(trimmedQuery) : null;
   const ctx = useMemo<ComboboxContextValue>(
@@ -537,7 +557,9 @@ const FieldInput = forwardRef<
     /** The input's `size` attribute: its intrinsic width in characters. */
     inputSize?: number;
   }
->(({ placeholder, invalid, inputClassName, inputSize, onKeyDown, onClick, className: _className, ...props }, ref) => {
+>(({ placeholder, invalid, inputClassName, inputSize, onKeyDown, onClick, ...rest }, ref) => {
+  // className styles the field around the input (FieldFrame), not the input.
+  const props = omit(rest, ["className"]);
   const sizeClasses = useSize();
   const {
     values,
@@ -643,7 +665,7 @@ const FieldInput = forwardRef<
       onKeyDown={handleKeyDown}
       className={cn(
         "min-w-0 flex-1 rounded-none bg-transparent text-foreground placeholder:text-muted-foreground outline-none font-[inherit]",
-        sizeClasses.text,
+        sizeClasses.field,
         // The caret is as tall as the line box (Chrome, Safari); the
         // ladder's leading keeps it in proportion to the field.
         sizeClasses.variant === "compact" ? "leading-5" : "leading-6",
@@ -665,7 +687,8 @@ function FieldControls({
   compact: boolean;
   iconSize: number;
 }) {
-  const XIcon = useIcon("x");
+  const icons = useIcons();
+  const XIcon = icons.x;
   const pill = useShape().variant === "pill";
   const { values, inputValue, open, disabled, setOpen, clear, inputRef } =
     useComboboxContext();
@@ -729,8 +752,10 @@ function useChipRowHeight(padY: number) {
   const height = useMotionValue<number | "auto">("auto");
   const roRef = useRef<ResizeObserver | null>(null);
   const padRef = useRef(padY);
-  padRef.current = padY;
-  const ref = useCallback(
+  useIsoLayoutEffect(() => {
+    padRef.current = padY;
+  });
+  const measure = useCallback(
     (el: HTMLDivElement | null) => {
       roRef.current?.disconnect();
       roRef.current = null;
@@ -748,7 +773,7 @@ function useChipRowHeight(padY: number) {
     },
     [height]
   );
-  return { ref, height };
+  return { measure, height };
 }
 
 /** The anchored field frame: a click on the icon or padding focuses the
@@ -831,7 +856,7 @@ const ComboboxInput = forwardRef<HTMLInputElement, ComboboxInputProps>(
           <FieldControls clearable={clearable} compact={compact} iconSize={sizeClasses.icon} />
         </FieldFrame>
         {error && (
-          <span className="text-[12px] text-destructive pl-3">{error}</span>
+          <span className="text-[length:var(--fs-caption,12px)] leading-[var(--lh-caption,16px)] text-destructive pl-3">{error}</span>
         )}
       </div>
     );
@@ -861,19 +886,22 @@ const ComboboxChips = forwardRef<HTMLInputElement, ComboboxChipsProps>(
     },
     ref
   ) => {
-    const XIcon = useIcon("x");
+    const icons = useIcons();
+    const XIcon = icons.x;
     const shape = useShape();
     const sizeClasses = useSize(size);
     const compact = sizeClasses.variant === "compact";
     const { values, itemsByValue, disabled, remove, inputValue } = useComboboxContext();
-    const rowHeight = useChipRowHeight(compact ? 8 : 12);
+    const { measure: measureChipRows, height: chipRowsHeight } = useChipRowHeight(
+      compact ? 8 : 12
+    );
 
     return (
       <div className="flex flex-col gap-1">
         <FieldFrame
           // The frame springs to the chip rows' measured height as they wrap
           // and unwrap, instead of snapping a row taller or shorter.
-          height={rowHeight.height}
+          height={chipRowsHeight}
           className={cn(
             fieldVariants({ variant }),
             // The spring above owns the height; leaving it in transition-all
@@ -906,7 +934,7 @@ const ComboboxChips = forwardRef<HTMLInputElement, ComboboxChipsProps>(
           <div
             role="toolbar"
             aria-label="Selected"
-            ref={rowHeight.ref}
+            ref={measureChipRows}
             className={cn(
               "relative flex min-w-0 flex-1 flex-wrap items-center gap-1",
               // A chip leads the field: the row pulls left so the chip sits
@@ -942,7 +970,8 @@ const ComboboxChips = forwardRef<HTMLInputElement, ComboboxChipsProps>(
                     className={cn(
                       "inline-flex max-w-full shrink-0 items-center gap-0.5 bg-hover pl-2 pr-0.5 text-foreground",
                       shape.variant === "pill" ? "rounded-full" : "rounded-md",
-                      compact ? "h-5 text-[11px]" : "h-6 text-[12px]"
+                      compact ? "h-5" : "h-6",
+                      typeClass("caption", compact ? "compact" : "default")
                     )}
                   >
                     <span className="truncate">{label}</span>
@@ -979,7 +1008,7 @@ const ComboboxChips = forwardRef<HTMLInputElement, ComboboxChipsProps>(
           <FieldControls clearable={clearable} compact={compact} iconSize={sizeClasses.icon} />
         </FieldFrame>
         {error && (
-          <span className="text-[12px] text-destructive pl-3">{error}</span>
+          <span className="text-[length:var(--fs-caption,12px)] leading-[var(--lh-caption,16px)] text-destructive pl-3">{error}</span>
         )}
       </div>
     );
@@ -1013,9 +1042,9 @@ const ComboboxContent = forwardRef<HTMLDivElement, ComboboxContentProps>(
     // mounted (forceMount below) until the exit tween finishes.
     const [mounted, setMounted] = useState(false);
 
-    useEffect(() => {
-      if (open) setMounted(true);
-    }, [open]);
+    // Set during the render that opens it, so the portal mounts in the same
+    // commit as `open` rather than one after.
+    if (open && !mounted) setMounted(true);
 
     // Fallback release for the deferred unmount: onAnimationComplete on the
     // motion.div is the primary signal, but rAF-driven animation callbacks
@@ -1110,7 +1139,8 @@ const ComboboxList = forwardRef<HTMLDivElement, ComboboxListProps>(
     const { open, values, multiple, listId, filteredItems, setHighlight, createRow } =
       useComboboxContext();
     const highlight = useContext(ComboboxHighlightContext);
-    const PlusIcon = useIcon("plus");
+    const icons = useIcons();
+    const PlusIcon = icons.plus;
     const shape = popupShape;
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -1145,19 +1175,25 @@ const ComboboxList = forwardRef<HTMLDivElement, ComboboxListProps>(
       () => filteredItems.map(itemValue).join(" "),
       [filteredItems]
     );
-    const reflowRef = useRef(false);
-    const prevSigRef = useRef(rowsSig);
-    const armedRectsRef = useRef(itemRects);
-    if (prevSigRef.current !== rowsSig) {
-      prevSigRef.current = rowsSig;
-      armedRectsRef.current = itemRects;
-      reflowRef.current = true;
+    // `armedRects` holds the rects of the old row set while armed; the flag
+    // clears a frame after rects from the new row set have rendered.
+    const [reflow, setReflow] = useState<{
+      sig: string;
+      armedRects: ItemRect[] | null;
+    }>(() => ({ sig: rowsSig, armedRects: null }));
+    if (reflow.sig !== rowsSig) {
+      setReflow({ sig: rowsSig, armedRects: itemRects });
     }
-    const reflowSnap = reflowRef.current;
+    const reflowSnap = reflow.armedRects !== null;
+    const reflowLanded = reflow.armedRects !== null && itemRects !== reflow.armedRects;
     useEffect(() => {
-      if (reflowRef.current && itemRects !== armedRectsRef.current)
-        reflowRef.current = false;
-    });
+      if (!reflowLanded) return;
+      const armed = reflow.armedRects;
+      const frame = requestAnimationFrame(() =>
+        setReflow((r) => (r.armedRects === armed ? { ...r, armedRects: null } : r))
+      );
+      return () => cancelAnimationFrame(frame);
+    }, [reflowLanded, reflow.armedRects]);
 
     // The checked rows' indices shift as the query filters the list.
     const checkedIndices = useMemo(
@@ -1341,11 +1377,6 @@ const ComboboxItem = forwardRef<HTMLDivElement, ComboboxItemProps>(
     const shape = popupShape;
     const sizeClasses = useSize();
     const compact = sizeClasses.variant === "compact";
-    const hasMounted = useRef(false);
-
-    useEffect(() => {
-      hasMounted.current = true;
-    }, []);
 
     // Register with fluid hover. Depends on the (stable) registerItem
     // rather than the content context, which is rebuilt on every activeIndex
@@ -1355,7 +1386,6 @@ const ComboboxItem = forwardRef<HTMLDivElement, ComboboxItemProps>(
 
     const isActive = contentCtx?.activeIndex === index;
     const isChecked = comboboxCtx.values.includes(value);
-    const skipAnimation = !hasMounted.current;
     const item = comboboxCtx.filteredItems[index];
 
     return (
@@ -1417,7 +1447,10 @@ const ComboboxItem = forwardRef<HTMLDivElement, ComboboxItemProps>(
           aria-hidden
           className={cn("shrink-0", compact ? "w-3.5 h-3.5" : "w-4 h-4")}
         >
-          <AnimatePresence>
+          {/* initial={false}: a row checked at mount shows the finished
+              check instead of drawing it, so default selections don't
+              animate on page load. */}
+          <AnimatePresence initial={false}>
             {isChecked && (
               <motion.svg
                 key="check"
@@ -1436,7 +1469,7 @@ const ComboboxItem = forwardRef<HTMLDivElement, ComboboxItemProps>(
               >
                 <motion.path
                   d="M4 12L9 17L20 6"
-                  initial={{ pathLength: skipAnimation ? 1 : 0 }}
+                  initial={{ pathLength: 0 }}
                   animate={{
                     pathLength: 1,
                     transition: { duration: 0.08, ease: "easeOut" },

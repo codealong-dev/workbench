@@ -10,7 +10,6 @@ import {
   useRef,
   useId,
   forwardRef,
-  cloneElement,
   isValidElement,
   Children,
   type ReactNode,
@@ -20,17 +19,21 @@ import {
   type HTMLAttributes,
   type Ref,
 } from "react";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { spring, exitFallbackMs } from "@/lib/springs";
 import { fontWeights } from "@/lib/font-weight";
 import { useShape } from "@/lib/shape-context";
-import { useSize, useSizeVariant } from "@/lib/size-context";
-import { useIcon } from "@/lib/icon-context";
+import { useSize, useSizeVariant, typeClass } from "@/lib/size-context";
+import { useIcons } from "@/lib/icon-context";
 import { useSurface, SurfaceProvider } from "@/lib/surface-context";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
+
+// SSR-safe layout effect (client components still server-render in Next).
+const useIsoLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -184,9 +187,13 @@ const SidebarProvider = forwardRef<HTMLDivElement, SidebarProviderProps>(
     const registerSide = useCallback((next: SidebarSide) => setSide(next), []);
 
     // Live width: the prop is the starting point, the rail's drag-resize
-    // updates it at runtime.
+    // updates it at runtime. A new prop resets it, during that render.
     const [width, setWidth] = useState(widthProp);
-    useEffect(() => setWidth(widthProp), [widthProp]);
+    const [syncedWidthProp, setSyncedWidthProp] = useState(widthProp);
+    if (syncedWidthProp !== widthProp) {
+      setSyncedWidthProp(widthProp);
+      setWidth(widthProp);
+    }
     const [isResizing, setIsResizing] = useState(false);
 
     // Default shortcut mirrors the sidebar's edge: "[" left, "]" right.
@@ -200,7 +207,9 @@ const SidebarProvider = forwardRef<HTMLDivElement, SidebarProviderProps>(
     const [internalOpen, setInternalOpen] = useState(defaultOpen);
     const open = openProp ?? internalOpen;
     const openRef = useRef(open);
-    openRef.current = open;
+    useIsoLayoutEffect(() => {
+      openRef.current = open;
+    });
 
     const setOpen = useCallback(
       (value: boolean | ((prev: boolean) => boolean)) => {
@@ -223,13 +232,15 @@ const SidebarProvider = forwardRef<HTMLDivElement, SidebarProviderProps>(
     // the mode) always dismisses the peek — including a PENDING intent
     // timer, or a hover armed just before the pin would fire setIsPeeking on
     // an open sidebar (the effect's deps never re-run for the late timer).
+    // The peek itself is cleared during the render that pins or disables
+    // it; the timer is cleared after that commit.
     const [isPeeking, setIsPeeking] = useState(false);
     const peekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    if ((open || peek === "none") && isPeeking) setIsPeeking(false);
     useEffect(() => {
       if (open || peek === "none") {
         if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
         peekTimerRef.current = null;
-        setIsPeeking(false);
       }
     }, [open, peek]);
     const cancelPeekTimer = useCallback(() => {
@@ -403,13 +414,9 @@ type SlotProps = {
   children?: ReactNode;
 } & Record<string, unknown>;
 
-function composeRefs<T>(...refs: (Ref<T> | undefined)[]): Ref<T> {
-  return (node: T | null) => {
-    for (const r of refs) {
-      if (typeof r === "function") r(node);
-      else if (r) (r as React.MutableRefObject<T | null>).current = node;
-    }
-  };
+function assignRef<T>(target: Ref<T> | undefined, node: T | null) {
+  if (typeof target === "function") target(node);
+  else if (target) (target as React.MutableRefObject<T | null>).current = node;
 }
 
 /** Resolves the element to clone: `render` wins, else `asChild`'s single
@@ -435,20 +442,35 @@ export function resolveSlotTemplate(
   return { template: null, content: children };
 }
 
-/** Renders `content` into the template element (merging class/style/handlers,
- *  composing refs) or into the default tag when there is no template. */
-export function slotElement(
-  template: ReactElement<SlotProps> | null,
-  DefaultTag: ElementType,
-  props: SlotProps & { ref?: Ref<HTMLElement> },
-  content: ReactNode
-): ReactElement {
+/** Renders `children` into the template element (merging class/style/
+ *  handlers, composing refs) or into the default tag when there is no
+ *  template. A component rather than a helper the parts call during their
+ *  render: the forwarded ref it composes arrives as the `elementRef` prop,
+ *  and only lands on the element at commit. */
+export function SlotElement({
+  template,
+  defaultTag: DefaultTag,
+  elementRef,
+  props,
+  children,
+}: {
+  template: ReactElement<SlotProps> | null;
+  defaultTag: ElementType;
+  elementRef?: Ref<HTMLElement>;
+  props: SlotProps;
+  children?: ReactNode;
+}): ReactElement {
   if (!template) {
     const Tag = DefaultTag as ElementType;
-    return <Tag {...props}>{content}</Tag>;
+    return (
+      <Tag {...props} ref={elementRef}>
+        {children}
+      </Tag>
+    );
   }
+  const TemplateTag = template.type as ElementType;
   const templateProps = template.props;
-  const merged: SlotProps & { ref?: Ref<HTMLElement> } = {
+  const merged: SlotProps = {
     ...props,
     ...templateProps,
     className: cn(props.className, templateProps.className),
@@ -469,8 +491,16 @@ export function slotElement(
   const templateRef =
     (templateProps as { ref?: Ref<HTMLElement> }).ref ??
     (template as unknown as { ref?: Ref<HTMLElement> }).ref;
-  merged.ref = composeRefs(props.ref, templateRef);
-  return cloneElement(template, merged, content);
+  // Both refs get the element, through a callback that only runs at commit.
+  const composedRef = (node: HTMLElement | null) => {
+    assignRef(elementRef, node);
+    assignRef(templateRef, node);
+  };
+  return (
+    <TemplateTag key={template.key ?? undefined} {...merged} ref={composedRef}>
+      {children}
+    </TemplateTag>
+  );
 }
 
 // ─── SidebarShell (shared desktop DOM for both flavors) ──────────────────────
@@ -494,7 +524,7 @@ const BREAKPOINT_HIDDEN: Record<number, string> = {
   1280: "max-xl:hidden max-xl:opacity-0 max-xl:duration-160 xl:duration-240 xl:starting:opacity-0",
 };
 
-// Props framer-motion redefines with incompatible signatures; they must not
+// Props Motion redefines with incompatible signatures; they must not
 // be forwarded onto a motion.div.
 type MotionSafeDivProps = Omit<
   HTMLAttributes<HTMLDivElement>,
@@ -609,38 +639,41 @@ const SidebarShell = forwardRef<HTMLDivElement, SidebarShellProps>(
     // very commit whose animate target changes; effects run too late), then
     // `dragFlip` holds the spring through its settle so pointer moves landing
     // right after a flip retarget the spring instead of snapping.
-    const [dragFlip, setDragFlip] = useState(false);
-    const prevOpenRef = useRef(open);
-    const openFlipped = prevOpenRef.current !== open;
+    // Counts drag flips, so each one restarts the hold; 0 is no hold.
+    const [dragFlip, setDragFlip] = useState(0);
     // Pinning open from an active peek: the panel is already fully on screen
     // as the overlay card, so while the width spring makes room the shell
     // must not clip — otherwise the visible sidebar wipes in from a mask it
-    // never left. Detected synchronously (the provider clears isPeeking an
-    // effect later); the state hold keeps the clip off through the spring.
+    // never left. The state hold keeps the clip off through the spring.
     const [pinFromPeekHold, setPinFromPeekHold] = useState(false);
-    const pinnedFromPeek = (openFlipped && open && isPeeking) || pinFromPeekHold;
+    // Both holds start in the render whose `open` flipped (comparing with
+    // the last render's `open` and `isPeeking`, kept as state): the provider
+    // clears isPeeking in that same render, so only the previous render
+    // still knows the card was up.
+    const [prevOpen, setPrevOpen] = useState(open);
+    const [wasPeeking, setWasPeeking] = useState(isPeeking);
+    if (prevOpen !== open) {
+      setPrevOpen(open);
+      if (isResizing) setDragFlip((n) => n + 1);
+      if (open && wasPeeking) setPinFromPeekHold(true);
+    }
+    if (wasPeeking !== isPeeking) setWasPeeking(isPeeking);
+    if (!isResizing && dragFlip !== 0) setDragFlip(0);
     useEffect(() => {
-      if (!(open && isPeeking)) return;
-      setPinFromPeekHold(true);
+      if (dragFlip === 0) return;
+      const id = setTimeout(() => setDragFlip(0), exitFallbackMs(spring.moderate));
+      return () => clearTimeout(id);
+    }, [dragFlip]);
+    useEffect(() => {
+      if (!pinFromPeekHold) return;
       const id = setTimeout(() => setPinFromPeekHold(false), exitFallbackMs(spring.slow));
       return () => clearTimeout(id);
-    }, [open, isPeeking]);
-    useEffect(() => {
-      const flipped = prevOpenRef.current !== open;
-      prevOpenRef.current = open;
-      if (!isResizing) {
-        setDragFlip(false);
-        return;
-      }
-      if (!flipped) return;
-      setDragFlip(true);
-      const id = setTimeout(() => setDragFlip(false), exitFallbackMs(spring.moderate));
-      return () => clearTimeout(id);
-    }, [open, isResizing]);
+    }, [pinFromPeekHold]);
+    const pinnedFromPeek = pinFromPeekHold;
     const widthTransition = reduceMotion
       ? { duration: 0 }
       : isResizing
-        ? openFlipped || dragFlip
+        ? dragFlip !== 0
           ? open
             ? spring.moderate
             : spring.moderate.exit
@@ -854,7 +887,7 @@ export type SidebarTriggerProps = ButtonProps;
 /** Keystroke chip rendered inside the (inverted) tooltip surface. */
 function ShortcutKbd({ children }: { children: ReactNode }) {
   return (
-    <kbd className="-my-1 flex h-4 min-w-4 items-center justify-center rounded border border-background/30 px-1 font-sans text-[10px] text-background/80">
+    <kbd className="-my-1 flex h-4 min-w-4 items-center justify-center rounded border border-background/30 px-1 font-sans text-[length:var(--fs-micro-compact,10px)] leading-[var(--lh-micro-compact,12px)] text-background">
       {children}
     </kbd>
   );
@@ -892,8 +925,9 @@ const SidebarTrigger = forwardRef<HTMLButtonElement, SidebarTriggerProps>(
     // same shared intent timer, so moving from the trigger into the peeked
     // card (or back) cancels the pending dismissal.
     const hoverPeek = peek === "hover" && !isMobile && !open;
-    const PanelLeftIcon = useIcon("panel-left");
-    const PanelRightIcon = useIcon("panel-right");
+    const icons = useIcons();
+    const PanelLeftIcon = icons["panel-left"];
+    const PanelRightIcon = icons["panel-right"];
     const TriggerIcon = side === "right" ? PanelRightIcon : PanelLeftIcon;
     const iconSize = useSizeVariant() === "compact" ? ("icon-compact" as const) : ("icon" as const);
     const collapsed = isMobile ? !openMobile : !open;
@@ -1146,7 +1180,7 @@ const SidebarInput = forwardRef<HTMLInputElement, SidebarInputProps>(
           "focus:bg-card focus:ring-border",
           "focus-visible:ring-[color:var(--focus-ring,#6B97FF)]",
           size.variant === "compact" ? "h-7" : "h-8",
-          size.text,
+          size.field,
           shape.input,
           className
         )}
@@ -1200,10 +1234,6 @@ const SidebarSeparator = forwardRef<HTMLDivElement, SidebarSectionProps>(
 SidebarSeparator.displayName = "SidebarSeparator";
 
 // ─── SidebarGroup family ─────────────────────────────────────────────────────
-
-// SSR-safe layout effect (client components still server-render in Next).
-const useIsoLayoutEffect =
-  typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 interface SidebarGroupContextValue {
   open: boolean;
@@ -1267,21 +1297,20 @@ const SidebarGroup = forwardRef<HTMLDivElement, SidebarGroupProps>(
     // clipped box shaves the 2px focus ring off a group's first and last
     // rows — so clipping lifts once an open group has settled.
     const [settled, setSettled] = useState(open);
-    useEffect(() => {
-      if (!open) setSettled(false);
-    }, [open]);
+    if (!open && settled) setSettled(false);
 
     // Height animates only when THIS group toggles. When the measured height
     // changes underneath it instead — a nested sub-menu collapsing inside the
     // group — the wrapper must snap: a spring re-targeted every frame chases
     // the child's own animation, lands well after it, and drags everything
-    // below the group along late. Tracked with a ref so a controlled `open`
-    // is covered too, and cleared once the toggle's animation lands.
-    const prevOpenRef = useRef(open);
-    const togglingRef = useRef(false);
-    if (prevOpenRef.current !== open) {
-      prevOpenRef.current = open;
-      togglingRef.current = true;
+    // below the group along late. Tracked against the previous `open` so a
+    // controlled `open` is covered too, and cleared once the toggle's
+    // animation lands.
+    const [prevOpen, setPrevOpen] = useState(open);
+    const [toggling, setToggling] = useState(false);
+    if (prevOpen !== open) {
+      setPrevOpen(open);
+      setToggling(true);
     }
 
     // The label and any header actions stay put; everything else after the
@@ -1337,18 +1366,18 @@ const SidebarGroup = forwardRef<HTMLDivElement, SidebarGroupProps>(
                   : { opacity: open ? 1 : 0 }
               }
               // Do NOT simplify this to `open ? spring.moderate : …`. The
-              // togglingRef arm is what stops a re-measure from springing —
+              // toggling arm is what stops a re-measure from springing —
               // without it a nested collapse makes this wrapper chase its own
               // child and everything below the group moves late.
               transition={
-                togglingRef.current
+                toggling
                   ? open
                     ? spring.moderate
                     : spring.moderate.exit
                   : { duration: 0 }
               }
               onAnimationComplete={() => {
-                togglingRef.current = false;
+                setToggling(false);
                 if (open) setSettled(true);
               }}
             >
@@ -1394,7 +1423,8 @@ const SidebarGroupLabel = forwardRef<HTMLDivElement, SidebarGroupLabelProps>(
     const sizeClasses = useSize();
     const group = useContext(SidebarGroupContext);
     const shape = useShape();
-    const ChevronRightIcon = useIcon("chevron-right");
+    const icons = useIcons();
+    const ChevronRightIcon = icons["chevron-right"];
     const { template, content } = resolveSlotTemplate(render, asChild, children);
 
     // Truncate only the leading text; element children (count badges,
@@ -1422,90 +1452,96 @@ const SidebarGroupLabel = forwardRef<HTMLDivElement, SidebarGroupLabelProps>(
     // treatment is unchanged — hover only raises the label's contrast and
     // reveals a chevron (kept visible while collapsed as the reopen cue).
     if (group) {
-      return slotElement(
-        template,
-        "button",
-        {
-          ref: ref as Ref<HTMLElement>,
-          type: template ? undefined : "button",
-          "data-sidebar": "group-label",
-          "aria-expanded": group.open,
-          "aria-controls": group.contentId,
-          onClick: group.toggle,
-          // The action cluster overlays the label's right edge, so the label
-          // pads past it — far enough that the hover-revealed chevron lands
-          // one cluster gap (4px) to its left and the whole trailing run
-          // keeps a single rhythm. Cluster width is 24px per action plus 4px
-          // between them; add that gap again, less the 8px the group's
-          // padding already gives back: 28n + 6. The cluster is always
-          // visible, so the reservation is permanent.
-          style:
-            group.actionsCount > 0
-              ? ({ "--group-actions-pad": `${group.actionsCount * 28 + 6}px` } as CSSProperties)
-              : undefined,
-          className: cn(
-            "flex h-8 w-full shrink-0 cursor-pointer select-none items-center gap-2 px-2 text-left text-muted-foreground/70 outline-none",
-            "transition-colors duration-80 hover:text-muted-foreground",
-            group.actionsCount > 0 && "pr-[var(--group-actions-pad)]",
-            "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)]",
-            shape.item,
-            sizeVariant === "compact" ? "text-[11px]" : "text-[12px]",
-            className
-          ),
-          ...props,
-        },
-        <>
-          {labelContent}
-          {/* The chevron occupies an action-sized box, so it reads as one more
-              icon in the row rather than a smaller glyph tacked on the end.
-              One chevron-right glyph for both states, sprung 90° to point
-              down while the group is open — the motion wrapper is what
-              animates: Tailwind's rotate-* sets the standalone CSS `rotate`
-              property, which transition-transform never covers. While open
-              the whole box collapses to zero width at rest so the label text
-              keeps the full row; hover/focus (or an open action popup)
-              reveals it. Collapsed keeps it visible as the reopen cue. */}
-          {/* No width/opacity transition: animating the box's width slides
-              the glyph in from the side — the chevron should simply be
-              there once the header is hovered. */}
-          <span
-            className={cn(
-              "ml-auto flex h-6 shrink-0 items-center justify-center overflow-hidden",
-              group.open
-                ? "w-0 opacity-0 group-hover/group-header:w-6 group-hover/group-header:opacity-100 group-focus-within/group-header:w-6 group-focus-within/group-header:opacity-100 group-has-[[data-sidebar=group-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/group-header:w-6 group-has-[[data-sidebar=group-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/group-header:opacity-100 pointer-coarse:w-6 pointer-coarse:opacity-100"
-                : "w-6 opacity-100"
-            )}
-          >
-            <motion.span
-              className="inline-flex"
-              animate={{ rotate: group.open ? 90 : 0 }}
-              transition={spring.fast}
+      return (
+        <SlotElement
+          template={template}
+          defaultTag="button"
+          elementRef={ref as Ref<HTMLElement>}
+          props={{
+            type: template ? undefined : "button",
+            "data-sidebar": "group-label",
+            "aria-expanded": group.open,
+            "aria-controls": group.contentId,
+            onClick: group.toggle,
+            // The action cluster overlays the label's right edge, so the label
+            // pads past it — far enough that the hover-revealed chevron lands
+            // one cluster gap (4px) to its left and the whole trailing run
+            // keeps a single rhythm. Cluster width is 24px per action plus 4px
+            // between them; add that gap again, less the 8px the group's
+            // padding already gives back: 28n + 6. The cluster is always
+            // visible, so the reservation is permanent.
+            style:
+              group.actionsCount > 0
+                ? ({ "--group-actions-pad": `${group.actionsCount * 28 + 6}px` } as CSSProperties)
+                : undefined,
+            className: cn(
+              "flex h-8 w-full shrink-0 cursor-pointer select-none items-center gap-2 px-2 text-left text-muted-foreground outline-none",
+              "transition-colors duration-80 hover:text-muted-foreground",
+              group.actionsCount > 0 && "pr-[var(--group-actions-pad)]",
+              "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)]",
+              shape.item,
+              typeClass("caption", sizeVariant),
+              className
+            ),
+            ...props,
+          }}
+        >
+          <>
+            {labelContent}
+            {/* The chevron occupies an action-sized box, so it reads as one more
+                icon in the row rather than a smaller glyph tacked on the end.
+                One chevron-right glyph for both states, sprung 90° to point
+                down while the group is open — the motion wrapper is what
+                animates: Tailwind's rotate-* sets the standalone CSS `rotate`
+                property, which transition-transform never covers. While open
+                the whole box collapses to zero width at rest so the label text
+                keeps the full row; hover/focus (or an open action popup)
+                reveals it. Collapsed keeps it visible as the reopen cue. */}
+            {/* No width/opacity transition: animating the box's width slides
+                the glyph in from the side — the chevron should simply be
+                there once the header is hovered. */}
+            <span
+              className={cn(
+                "ml-auto flex h-6 shrink-0 items-center justify-center overflow-hidden",
+                group.open
+                  ? "w-0 opacity-0 group-hover/group-header:w-6 group-hover/group-header:opacity-100 group-focus-within/group-header:w-6 group-focus-within/group-header:opacity-100 group-has-[[data-sidebar=group-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/group-header:w-6 group-has-[[data-sidebar=group-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/group-header:opacity-100 pointer-coarse:w-6 pointer-coarse:opacity-100"
+                  : "w-6 opacity-100"
+              )}
             >
-              <ChevronRightIcon
-                size={sizeClasses.icon}
-                strokeWidth={1.5}
-                className="shrink-0"
-              />
-            </motion.span>
-          </span>
-        </>
+              <motion.span
+                className="inline-flex"
+                animate={{ rotate: group.open ? 90 : 0 }}
+                transition={spring.fast}
+              >
+                <ChevronRightIcon
+                  size={sizeClasses.icon}
+                  strokeWidth={1.5}
+                  className="shrink-0"
+                />
+              </motion.span>
+            </span>
+          </>
+        </SlotElement>
       );
     }
 
-    return slotElement(
-      template,
-      "div",
-      {
-        ref: ref as Ref<HTMLElement>,
-        "data-sidebar": "group-label",
-        className: cn(
-          "flex h-8 shrink-0 items-center gap-2 px-2 text-muted-foreground/70 outline-none",
-          sizeVariant === "compact" ? "text-[11px]" : "text-[12px]",
-          className
-        ),
-        ...props,
-      },
-      labelContent
+    return (
+      <SlotElement
+        template={template}
+        defaultTag="div"
+        elementRef={ref as Ref<HTMLElement>}
+        props={{
+          "data-sidebar": "group-label",
+          className: cn(
+            "flex h-8 shrink-0 items-center gap-2 px-2 text-muted-foreground outline-none",
+            typeClass("caption", sizeVariant),
+            className
+          ),
+          ...props,
+        }}
+      >
+        {labelContent}
+      </SlotElement>
     );
   }
 );
@@ -1526,38 +1562,41 @@ const SidebarGroupAction = forwardRef<HTMLButtonElement, SidebarGroupActionProps
     const sizeClasses = useSize();
     const inCluster = useContext(GroupActionsContext);
     const { template, content } = resolveSlotTemplate(render, asChild, children);
-    return slotElement(
-      template,
-      "button",
-      {
-        ref: ref as Ref<HTMLElement>,
-        type: template ? undefined : "button",
-        "data-sidebar": "group-action",
-        className: cn(
-          inCluster
-            ? "relative flex size-6 items-center justify-center text-muted-foreground outline-none"
-            // size-6 matches the rows' action hit-box, and right-3.5 puts that
-            // 24px box's centre 26px from the sidebar's inner edge — the axis
-            // the rows' badges and actions already sit on.
-            : "absolute right-3.5 top-3 flex size-6 items-center justify-center text-muted-foreground outline-none",
-          "hover:bg-hover hover:text-foreground transition-colors duration-80",
-          "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)]",
-          // Normalize bare icons to the site's 1.5 stroke (library defaults
-          // vary), thickening to 2 on hover — the same treatment Button's
-          // icon-only span applies.
-          "[&_svg]:size-[var(--icon-size)] [&_svg]:shrink-0 [&_svg]:stroke-[1.5] [&_svg]:transition-[stroke-width] [&_svg]:duration-80 hover:[&_svg]:stroke-[2]",
-          shape.item,
-          className
-        ),
-        ...props,
-        // After ...props: the spread would otherwise replace this object
-        // wholesale and drop the icon-size the glyph is sized from.
-        style: {
-          ...({ "--icon-size": `${sizeClasses.icon}px` } as CSSProperties),
-          ...(props.style ?? {}),
-        },
-      },
-      content
+    return (
+      <SlotElement
+        template={template}
+        defaultTag="button"
+        elementRef={ref as Ref<HTMLElement>}
+        props={{
+          type: template ? undefined : "button",
+          "data-sidebar": "group-action",
+          className: cn(
+            inCluster
+              ? "relative flex size-6 items-center justify-center text-muted-foreground outline-none"
+              // size-6 matches the rows' action hit-box, and right-3.5 puts that
+              // 24px box's centre 26px from the sidebar's inner edge — the axis
+              // the rows' badges and actions already sit on.
+              : "absolute right-3.5 top-3 flex size-6 items-center justify-center text-muted-foreground outline-none",
+            "hover:bg-hover hover:text-foreground transition-colors duration-80",
+            "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)]",
+            // Normalize bare icons to the site's 1.5 stroke (library defaults
+            // vary), thickening to 2 on hover — the same treatment Button's
+            // icon-only span applies.
+            "[&_svg]:size-[var(--icon-size)] [&_svg]:shrink-0 [&_svg]:stroke-[1.5] [&_svg]:transition-[stroke-width] [&_svg]:duration-80 hover:[&_svg]:stroke-[2]",
+            shape.item,
+            className
+          ),
+          ...props,
+          // After ...props: the spread would otherwise replace this object
+          // wholesale and drop the icon-size the glyph is sized from.
+          style: {
+            ...({ "--icon-size": `${sizeClasses.icon}px` } as CSSProperties),
+            ...(props.style ?? {}),
+          },
+        }}
+      >
+        {content}
+      </SlotElement>
     );
   }
 );

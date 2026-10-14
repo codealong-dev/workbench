@@ -1,4 +1,5 @@
 
+
 import {
   createContext,
   useContext,
@@ -7,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { motion, useMotionValue } from "framer-motion";
+import { motion, useMotionValue } from "motion/react";
 import { cn } from "@/lib/utils";
 import { spring, exitFallbackMs } from "@/lib/springs";
 import { fontWeights } from "@/lib/font-weight";
@@ -145,9 +146,9 @@ function Tooltip({
   const portalContainer = useContext(TooltipPortalContainerContext);
   const hasAmbientProvider = useContext(TooltipGroupContext);
 
-  useEffect(() => {
-    if (open) setMounted(true);
-  }, [open]);
+  // Set during the render that opens it, so the portal mounts in the same
+  // commit as `open` rather than one after.
+  if (open && !mounted) setMounted(true);
 
   // Fallback release for the deferred unmount: onAnimationComplete is the
   // primary signal, but rAF-driven animation callbacks can stall in
@@ -211,13 +212,13 @@ function Tooltip({
                 className={cn(
                   // Trim recenters the label; the padding bump only applies
                   // where text-box is supported, keeping the same overall
-                  // height (~26px) as untrimmed browsers.
-                  "bg-foreground text-background text-[12px] px-2 py-1",
+                  // height (~24px) as untrimmed browsers.
+                  "bg-foreground text-background text-[length:var(--fs-caption,12px)] leading-[var(--lh-caption,16px)] px-2 py-1",
                   "[text-box:trim-both_cap_alphabetic] supports-[text-box:trim-both]:py-2",
                   shape.bg,
                   className
                 )}
-                style={{ fontVariationSettings: fontWeights.medium }}
+                style={{ fontVariationSettings: fontWeights.normal }}
                 initial={{ opacity: 0, ...slideOffset }}
                 animate={{
                   opacity: open ? 1 : 0,

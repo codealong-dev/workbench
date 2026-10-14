@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AnimatePresence, Reorder, motion } from "framer-motion";
+import { AnimatePresence, Reorder, motion } from "motion/react";
 import { RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";

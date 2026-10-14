@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, type ReactNode } from "react";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import { ChevronRight, Folder, FolderOpen, type LucideIcon } from "lucide-react";
 import { FluidHoverHighlight } from "@/components/ui/fluid-hover-highlight";
 import { useFluidHover, useRegisterFluidHoverItem } from "@/hooks/use-fluid-hover";

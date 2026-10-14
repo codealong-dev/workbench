@@ -1,8 +1,9 @@
 
+
 import { type ComponentProps } from "react";
 import { SidebarInput } from "@/components/ui/sidebar";
 import { useSize } from "@/lib/size-context";
-import { useIcon } from "@/lib/icon-context";
+import { useIcons } from "@/lib/icon-context";
 
 // ---------------------------------------------------------------------------
 // The header's search field, on the menu rows' own rhythm. The leading icon
@@ -23,7 +24,8 @@ export function SidebarSearchField({
   ...props
 }: SidebarSearchFieldProps) {
   const iconSize = useSize().icon;
-  const SearchIcon = useIcon("search");
+  const icons = useIcons();
+  const SearchIcon = icons.search;
   return (
     <div className="group/search relative">
       <SearchIcon
@@ -38,7 +40,7 @@ export function SidebarSearchField({
         {...props}
       />
       {shortcut && (
-        <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-sans text-[11px] text-muted-foreground opacity-0 transition-opacity duration-80 group-hover/search:opacity-100 group-focus-within/search:opacity-100">
+        <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-sans text-[length:var(--fs-micro,11px)] leading-[var(--lh-micro,14px)] text-muted-foreground opacity-0 transition-opacity duration-80 group-hover/search:opacity-100 group-focus-within/search:opacity-100">
           {shortcut}
         </kbd>
       )}

@@ -1,10 +1,10 @@
 
 import { forwardRef, type ReactNode } from "react";
-import { motion, type HTMLMotionProps } from "framer-motion";
+import { motion, type HTMLMotionProps } from "motion/react";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/springs";
 import { useShape } from "@/lib/shape-context";
-import { useSize, type SizeVariant } from "@/lib/size-context";
+import { useSize, typeClass, type SizeVariant } from "@/lib/size-context";
 import { useTouchPrimary } from "@/hooks/use-touch-primary";
 import { FileThumbnail } from "@/components/ui/file-thumbnail";
 
@@ -88,7 +88,8 @@ const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
           <div
             className={cn(
               "whitespace-pre-wrap break-words",
-              compact ? "py-1.5 text-[13px]" : "py-2 text-[14px]",
+              compact ? "py-1.5" : "py-2",
+              typeClass("subtitle", compact ? "compact" : "default"),
               // User keeps the bubble chrome (rounded fill + horizontal padding);
               // the assistant reply is flush-left plain text with no background.
               isUser
@@ -101,7 +102,7 @@ const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
                     // word-by-word stream visibly reflows earlier words to new
                     // lines. Default (normal) wrapping appends left-to-right and
                     // stays put as the text grows.
-                    "text-pretty bg-[color-mix(in_oklab,var(--accent),var(--background)_45%)] text-accent-foreground"
+                    "text-pretty bg-[color-mix(in_oklab,var(--accent),var(--background)_45%)] text-foreground"
                   )
                 : "text-foreground"
             )}
@@ -117,8 +118,8 @@ const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(
           // show their actions alone. User rows read date → icons left-to-right.
           <div
             className={cn(
-              "flex items-center gap-2 px-1 leading-none text-muted-foreground select-none",
-              compact ? "text-[11px]" : "text-[12px]",
+              "flex items-center gap-2 px-1 text-muted-foreground select-none",
+              typeClass("caption", compact ? "compact" : "default"),
               !isTouch && [
                 "opacity-0 pointer-events-none transition-opacity duration-150",
                 "group-hover:opacity-100 group-hover:pointer-events-auto",

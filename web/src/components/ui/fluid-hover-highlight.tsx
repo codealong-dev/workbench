@@ -4,7 +4,7 @@ import {
   AnimatePresence,
   useReducedMotion,
   type Transition,
-} from "framer-motion";
+} from "motion/react";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/springs";
 import type { ItemRect, UseFluidHoverReturn } from "@/hooks/use-fluid-hover";
@@ -25,7 +25,7 @@ import type { ItemRect, UseFluidHoverReturn } from "@/hooks/use-fluid-hover";
  *  measured rects, whether they are current, and the pointer session. */
 export type FluidHoverSource = Pick<
   UseFluidHoverReturn,
-  "activeIndex" | "itemRects" | "isMeasured" | "sessionRef"
+  "activeIndex" | "itemRects" | "isMeasured" | "session"
 >;
 
 interface HighlightFromHook {
@@ -44,9 +44,9 @@ interface HighlightFromRect {
    *  the rect to sit on, in the container's coordinate space. `null` hides
    *  the highlight (it fades out on `spring.fast.exit`). */
   rect: ItemRect | null;
-  /** `sessionRef.current` from `useFluidHover`. It increments when the
-   *  cursor enters the container, which re-keys the highlight so it fades in
-   *  at `from ?? rect` instead of sliding over from wherever it was last. */
+  /** `session` from `useFluidHover`. It steps when the cursor enters the
+   *  container, which re-keys the highlight so it fades in at `from ?? rect`
+   *  instead of sliding over from wherever it was last. */
   session: number;
   hover?: never;
   hidden?: never;
@@ -93,12 +93,12 @@ export function resolveHighlightSource(
   props: FluidHoverHighlightProps
 ): { rect: ItemRect | null; session: number } {
   if (props.hover) {
-    const { activeIndex, itemRects, isMeasured, sessionRef } = props.hover;
+    const { activeIndex, itemRects, isMeasured, session } = props.hover;
     const rect =
       !props.hidden && isMeasured && activeIndex !== null
         ? (itemRects[activeIndex] ?? null)
         : null;
-    return { rect, session: sessionRef.current };
+    return { rect, session };
   }
   return { rect: props.rect, session: props.session };
 }

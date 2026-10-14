@@ -1,4 +1,5 @@
 
+
 import { type ReactNode } from "react";
 import {
   SidebarMenu,
@@ -12,7 +13,7 @@ import {
 } from "@/components/ui/dropdown";
 import { cn } from "@/lib/utils";
 import { useSize } from "@/lib/size-context";
-import { useIcon } from "@/lib/icon-context";
+import { useIcons } from "@/lib/icon-context";
 import { SIDEBAR_MENU_POPUP } from "@/lib/sidebar-menu-grid";
 
 // ---------------------------------------------------------------------------
@@ -44,7 +45,8 @@ export function SidebarUserFooter({
   className,
 }: SidebarUserFooterProps) {
   const iconSize = useSize().icon;
-  const ChevronsUpDown = useIcon("chevrons-up-down");
+  const icons = useIcons();
+  const ChevronsUpDown = icons["chevrons-up-down"];
   return (
     <SidebarMenu aria-label="User" className={cn(className)}>
       <SidebarMenuItem>
@@ -55,7 +57,7 @@ export function SidebarUserFooter({
                 <span className="-ml-0.5 -mr-0.5 flex size-5 shrink-0 items-center justify-center">
                   {avatar}
                 </span>
-                <span className="min-w-0 truncate text-[13px] text-foreground">
+                <span className="min-w-0 truncate text-[length:var(--fs-body,13px)] leading-[var(--lh-body,20px)] text-foreground">
                   {name}
                 </span>
                 <span className="ml-auto -mr-0.5 flex size-6 shrink-0 items-center justify-center">

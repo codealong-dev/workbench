@@ -1,6 +1,6 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion } from "motion/react";
 import { spring } from "@/lib/springs";
 import type { ItemRect } from "@/hooks/use-fluid-hover";
 
@@ -39,9 +39,53 @@ export interface SelBlock extends Rect {
   enterFrom?: { top: number; height: number; radii: [number, number, number, number] };
 }
 
-// A contiguous run of selected/checked rows, with a stable id so framer-motion
+// A contiguous run of selected/checked rows, with a stable id so Motion
 // can morph it across renders rather than exit+re-enter.
 export type Run = { start: number; end: number; id: number };
+
+interface RunIds {
+  runs: Run[];
+  /** Row index → the id of the run it belongs to. */
+  byRow: Map<number, number>;
+  lastId: number;
+}
+
+/**
+ * Groups sorted row indices into contiguous runs and ids them against the
+ * previous grouping: a run reuses the id of the first of its rows that had
+ * one, unless an earlier run already took it (after a split the upper run
+ * keeps the id and the lower run gets a new one).
+ */
+function assignRunIds(
+  sorted: readonly number[],
+  prev: ReadonlyMap<number, number>,
+  lastId: number
+): RunIds {
+  const spans: { start: number; end: number }[] = [];
+  for (const idx of sorted) {
+    const last = spans[spans.length - 1];
+    if (last && idx === last.end + 1) last.end = idx;
+    else spans.push({ start: idx, end: idx });
+  }
+
+  const usedIds = new Set<number>();
+  const byRow = new Map<number, number>();
+  const runs = spans.map((span) => {
+    let stableId: number | null = null;
+    for (let i = span.start; i <= span.end; i++) {
+      const prevId = prev.get(i);
+      if (prevId !== undefined && !usedIds.has(prevId)) {
+        stableId = prevId;
+        break;
+      }
+    }
+    const id = stableId ?? ++lastId;
+    usedIds.add(id);
+    for (let i = span.start; i <= span.end; i++) byRow.set(i, id);
+    return { ...span, id };
+  });
+  return { runs, byRow, lastId };
+}
 
 /**
  * Groups checked row indices into contiguous runs with ids that survive
@@ -50,35 +94,17 @@ export type Run = { start: number; end: number; id: number };
  * Feed the result to useMergeSplitBlocks.
  */
 export function useSelectionRuns(checkedIndices: readonly number[]): Run[] {
-  const prevGroupMap = useRef(new Map<number, number>());
-  const groupIdCounter = useRef(0);
-
-  const runs: { start: number; end: number }[] = [];
   const sorted = [...checkedIndices].sort((a, b) => a - b);
-  for (const idx of sorted) {
-    const last = runs[runs.length - 1];
-    if (last && idx === last.end + 1) last.end = idx;
-    else runs.push({ start: idx, end: idx });
-  }
-
-  const usedIds = new Set<number>();
-  const nextGroupMap = new Map<number, number>();
-  const result = runs.map((run) => {
-    let stableId: number | null = null;
-    for (let i = run.start; i <= run.end; i++) {
-      const prevId = prevGroupMap.current.get(i);
-      if (prevId !== undefined && !usedIds.has(prevId)) {
-        stableId = prevId;
-        break;
-      }
-    }
-    const id = stableId ?? ++groupIdCounter.current;
-    usedIds.add(id);
-    for (let i = run.start; i <= run.end; i++) nextGroupMap.set(i, id);
-    return { ...run, id };
-  });
-  prevGroupMap.current = nextGroupMap;
-  return result;
+  const key = sorted.join(",");
+  // The ids depend on the previous grouping, so it is kept as state and
+  // advanced during render when the selection changes (React re-renders
+  // with it before committing). Writing a ref here instead would make
+  // rendering itself the side effect.
+  const [ids, setIds] = useState(() => ({ key, ...assignRunIds(sorted, new Map(), 0) }));
+  if (ids.key === key) return ids.runs;
+  const next = { key, ...assignRunIds(sorted, ids.byRow, ids.lastId) };
+  setIds(next);
+  return next.runs;
 }
 
 // One in-flight merge or split; geometry is recomputed from the live runs each
@@ -120,7 +146,10 @@ export function useMergeSplitBlocks(
   R: number
 ): SelBlock[] {
   const [boundaries, setBoundaries] = useState<Boundary[]>([]);
-  const prevRunsRef = useRef<Run[]>([]);
+  // The runs the last layout pass saw. State rather than a ref, because the
+  // render reads it too (the split safety net below), and the pass updates
+  // it in the same batch as the boundaries it found.
+  const [prevRuns, setPrevRuns] = useState<Run[]>([]);
   const tidRef = useRef(0);
   const timersRef = useRef(new Map<number, ReturnType<typeof setTimeout>>());
   const runsSig = runs.map((g) => `${g.id}:${g.start}-${g.end}`).join("|");
@@ -129,7 +158,7 @@ export function useMergeSplitBlocks(
   // halves) and drop any boundary the latest selection invalidated (e.g. the
   // bridge row was toggled again mid-flight).
   useIsoLayoutEffect(() => {
-    const prev = prevRunsRef.current;
+    const prev = prevRuns;
     const cur = runs;
     const found: Boundary[] = [];
     for (const c of cur) {
@@ -156,7 +185,7 @@ export function useMergeSplitBlocks(
           phase: "splitIn",
         });
     }
-    prevRunsRef.current = cur.map((r) => ({ ...r }));
+    setPrevRuns(cur.map((r) => ({ ...r })));
     // Resolve each new boundary after its motion window (merge → swap to one
     // block; split → drop), so an interrupted animation can't strand a half.
     for (const b of found) {
@@ -210,18 +239,21 @@ export function useMergeSplitBlocks(
     return () => timers.forEach(clearTimeout);
   }, []);
 
-  // Follow-up render: a fresh split holds its abutting frame once then
+  // Follow-up frame: a fresh split holds its abutting frame once then
   // diverges; a committed merge is dropped.
   useEffect(() => {
     if (!boundaries.some((b) => b.phase === "splitIn" || b.phase === "commit"))
       return;
-    setBoundaries((bs) =>
-      bs.flatMap((b) =>
-        b.phase === "commit"
-          ? []
-          : [{ ...b, phase: b.phase === "splitIn" ? "diverge" : b.phase }]
+    const frame = requestAnimationFrame(() =>
+      setBoundaries((bs) =>
+        bs.flatMap((b) =>
+          b.phase === "commit"
+            ? []
+            : [{ ...b, phase: b.phase === "splitIn" ? "diverge" : b.phase }]
+        )
       )
     );
+    return () => cancelAnimationFrame(frame);
   }, [boundaries]);
 
   // Build the blocks to paint: one per run, overridden into abutting halves for
@@ -329,7 +361,7 @@ export function useMergeSplitBlocks(
   // snap. Detecting the split here (previous runs vs current) and pinning both
   // halves at the seam guarantees the lower mounts on the seam regardless of
   // render/paint timing (the cause of the rapid-toggle snap).
-  for (const p of prevRunsRef.current) {
+  for (const p of prevRuns) {
     const c = bridgePair(p, runs);
     const gap = c && itemRects[c.gap];
     if (!c || !gap) continue;

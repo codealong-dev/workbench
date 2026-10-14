@@ -16,13 +16,14 @@ import {
   type ReactNode,
   type TextareaHTMLAttributes,
 } from "react";
-import { AnimatePresence, motion, Reorder, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion, Reorder, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { fontWeights } from "@/lib/font-weight";
 import { spring } from "@/lib/springs";
+import { omit } from "@/lib/omit";
 import { nestedRadius, useShape } from "@/lib/shape-context";
-import { SizeProvider, useSize, type SizeVariant } from "@/lib/size-context";
-import { useIcon } from "@/lib/icon-context";
+import { SizeProvider, useSize, fieldTouchClass, type SizeVariant } from "@/lib/size-context";
+import { useIcons } from "@/lib/icon-context";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { SurfaceProvider } from "@/lib/surface-context";
 import { useFluidHover, useRegisterFluidHoverItem } from "@/hooks/use-fluid-hover";
@@ -100,6 +101,19 @@ interface InputMessageSlotContext {
 type InputMessageSlot =
   | ReactNode
   | ((ctx: InputMessageSlotContext) => ReactNode);
+
+/** Renders a slot. A function slot is called here, in its own component,
+ *  so InputMessage's render never hands consumer code the context's
+ *  ref-reading callbacks (openFilePicker) mid-render. */
+function InputMessageSlotContent({
+  slot,
+  ctx,
+}: {
+  slot: InputMessageSlot;
+  ctx: InputMessageSlotContext;
+}) {
+  return <>{typeof slot === "function" ? slot(ctx) : slot}</>;
+}
 
 /** A message held in the queue while the assistant is responding. Carries the
  *  trimmed text plus a snapshot of the files attached when it was queued, so
@@ -208,7 +222,8 @@ interface FilePreviewTileProps {
 }
 
 function FilePreviewTile({ file, onRemove, size }: FilePreviewTileProps) {
-  const XIcon = useIcon("x");
+  const icons = useIcons();
+  const XIcon = icons.x;
   const shape = useShape();
   // The tile sits 8px inside the composer's container edge. Derive its curve
   // from that actual inset instead of reusing the popup-specific 4px pair.
@@ -277,8 +292,9 @@ function QueuedRow({
   onRemove,
   onMove,
 }: QueuedRowProps) {
-  const XIcon = useIcon("x");
-  const ImageIcon = useIcon("image");
+  const icons = useIcons();
+  const XIcon = icons.x;
+  const ImageIcon = icons.image;
   const compactStep = useSize().variant === "compact";
   const fileCount = item.files.length;
   const label =
@@ -318,9 +334,9 @@ function QueuedRow({
         // text-box trim on the label doesn't shrink the row.
         "group/qrow flex items-center gap-2 rounded-lg bg-muted",
         compactStep
-          ? "h-7 px-2 text-[12px]"
-          : "h-8 px-2.5 text-[13px]",
-        "text-foreground/85 select-none outline-none",
+          ? "h-7 px-2 text-[length:var(--fs-body-compact,12px)] leading-[var(--lh-body-compact,18px)]"
+          : "h-8 px-2.5 text-[length:var(--fs-body,13px)] leading-[var(--lh-body,20px)]",
+        "text-foreground select-none outline-none",
         "cursor-grab active:cursor-grabbing",
         "focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)]"
       )}
@@ -392,8 +408,9 @@ function SuggestionRow({
   registerItem,
   onSelect,
 }: SuggestionRowProps) {
-  const EnterIcon = useIcon("corner-down-left");
-  const ArrowDownIcon = useIcon("arrow-down");
+  const icons = useIcons();
+  const EnterIcon = icons["corner-down-left"];
+  const ArrowDownIcon = icons["arrow-down"];
   const compactStep = useSize().variant === "compact";
   const ref = useRef<HTMLDivElement>(null);
 
@@ -411,7 +428,7 @@ function SuggestionRow({
         // Text size mirrors the composer's textarea/placeholder (the rows
         // read as prompt candidates, not metadata); heights follow the
         // QueuedRow step ladder.
-        compactStep ? "h-7 px-2 text-[13px]" : "h-8 px-2.5 text-[14px]",
+        compactStep ? "h-7 px-2 text-[length:var(--fs-subtitle-compact,13px)] leading-[var(--lh-subtitle-compact,18px)]" : "h-8 px-2.5 text-[length:var(--fs-subtitle,14px)] leading-[var(--lh-subtitle,20px)]",
         "text-muted-foreground transition-colors duration-80",
         active && "text-foreground"
       )}
@@ -428,7 +445,7 @@ function SuggestionRow({
       {!active && keyHint ? (
         <ArrowDownIcon
           size={13}
-          className="shrink-0 text-muted-foreground/70 transition-opacity duration-80"
+          className="shrink-0 text-muted-foreground transition-opacity duration-80"
         />
       ) : (
         <EnterIcon
@@ -483,7 +500,8 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
   ) => {
     const shape = useShape();
     const compactStep = useSize(size).variant === "compact";
-    const ArrowUpIcon = useIcon("arrow-up");
+    const icons = useIcons();
+    const ArrowUpIcon = icons["arrow-up"];
     const reduceMotion = useReducedMotion() ?? false;
     const isTouch = useIsTouch();
 
@@ -493,15 +511,15 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     const [dragOver, setDragOver] = useState(false);
     const [hovered, setHovered] = useState(false);
 
-    // Split out onFocus/onBlur so the rest-spread onto the textarea can't
-    // clobber the composed handlers below.
+    // Split out onFocus/onBlur/onPaste so the rest-spread onto the textarea can't
+    // clobber the composed handlers below, and className so it merges with
+    // the field's own classes instead of replacing them.
     const {
-      onFocus: _textareaOnFocus,
-      onBlur: _textareaOnBlur,
-      onPaste: _textareaOnPaste,
       "aria-describedby": textareaDescribedBy,
-      ...restTextareaProps
+      className: textareaClassName,
+      ...textareaRest
     } = textareaProps ?? {};
+    const restTextareaProps = omit(textareaRest, ["onFocus", "onBlur", "onPaste"]);
 
     const filesArr = useMemo(() => files ?? [], [files]);
     const supportsFiles = onFilesChange !== undefined;
@@ -513,7 +531,9 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
     // latest value even if a handler closure is stale (e.g. two submits land
     // before the controlled `queue` prop round-trips back).
     const queueRef = useRef(queueArr);
-    queueRef.current = queueArr;
+    useIsoLayoutEffect(() => {
+      queueRef.current = queueArr;
+    });
     const supportsQueue = status !== undefined && onQueueChange !== undefined;
     const streaming = status === "streaming";
     const [liveMsg, setLiveMsg] = useState("");
@@ -984,10 +1004,8 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
       () => ({ openFilePicker, files: filesArr }),
       [openFilePicker, filesArr]
     );
-    const leftContent =
-      typeof leftSlot === "function" ? leftSlot(slotCtx) : leftSlot;
-    const rightContent =
-      typeof rightSlot === "function" ? rightSlot(slotCtx) : rightSlot;
+    const leftContent = <InputMessageSlotContent slot={leftSlot} ctx={slotCtx} />;
+    const rightContent = <InputMessageSlotContent slot={rightSlot} ctx={slotCtx} />;
 
     // ── Drag-and-drop ────────────────────────────────────────────────
     const handleDragOver = useCallback(
@@ -1213,8 +1231,10 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
                 "w-full resize-none rounded-none bg-transparent outline-none",
                 "text-foreground placeholder:text-muted-foreground",
                 compactStep
-                  ? "text-[13px] leading-[18px] px-1.5 py-1.5"
-                  : "text-[14px] leading-5 px-2 py-2"
+                  ? "text-[length:var(--fs-subtitle-compact,13px)] leading-[var(--lh-subtitle-compact,18px)] px-1.5 py-1.5"
+                  : "text-[length:var(--fs-subtitle,14px)] leading-[var(--lh-subtitle,20px)] px-2 py-2",
+                fieldTouchClass,
+                textareaClassName
               )}
               style={{ fontVariationSettings: fontWeights.normal }}
               {...restTextareaProps}
@@ -1229,10 +1249,11 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
                 className={cn(
                   "pointer-events-none absolute inset-0 overflow-hidden text-muted-foreground",
                   // Mirror the textarea's step typography exactly so the ghost
-                  // sits where typed text will.
+                  // sits where typed text will, 16px touch size included.
                   compactStep
-                    ? "text-[13px] leading-[18px] px-1.5 py-1.5"
-                    : "text-[14px] leading-5 px-2 py-2"
+                    ? "text-[length:var(--fs-subtitle-compact,13px)] leading-[var(--lh-subtitle-compact,18px)] px-1.5 py-1.5"
+                    : "text-[length:var(--fs-subtitle,14px)] leading-[var(--lh-subtitle,20px)] px-2 py-2",
+                  fieldTouchClass
                 )}
                 style={{ fontVariationSettings: fontWeights.normal }}
               >
@@ -1245,7 +1266,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
                   <kbd
                     className={cn(
                       "inline-flex shrink-0 -translate-y-px items-center rounded-[5px] border border-border bg-background px-1 font-sans text-muted-foreground",
-                      compactStep ? "h-4 text-[10px]" : "h-[18px] text-[11px]"
+                      compactStep ? "h-4 text-[length:var(--fs-micro-compact,10px)] leading-[var(--lh-micro-compact,12px)]" : "h-[18px] text-[length:var(--fs-micro,11px)] leading-[var(--lh-micro,14px)]"
                     )}
                   >
                     Tab
@@ -1268,7 +1289,7 @@ const InputMessage = forwardRef<HTMLDivElement, InputMessageProps>(
               // Buttons), so the compact step scales any button in the row —
               // send button included — down to 24px via a scoped override.
               compactStep
-                ? "gap-1.5 [&_button]:h-6 [&_button.w-7]:w-6 [&_button]:text-[11px]"
+                ? "gap-1.5 [&_button]:h-6 [&_button.w-7]:w-6 [&_button]:text-[length:var(--fs-caption-compact,11px)] [&_button]:leading-[var(--lh-caption-compact,14px)]"
                 : "gap-2"
             )}
           >
