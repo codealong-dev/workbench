@@ -156,6 +156,8 @@ export function Timeline(props: {
       const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
       if (near) pinned.current = true;
       else if (Date.now() - lastInput < 300) pinned.current = false;
+      // moved by the layout, not the user (the tab was shown again): stay at the bottom
+      else if (pinned.current) el.scrollTop = el.scrollHeight;
     };
     const inputs = ["wheel", "touchmove", "pointerdown", "keydown"] as const;
     inputs.forEach((e) => el.addEventListener(e, onInput, { passive: true }));
